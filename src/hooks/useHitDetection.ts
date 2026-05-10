@@ -37,6 +37,12 @@ export interface UseHitDetectionOptions {
   useAdaptiveThreshold?: boolean;
   useMultiFeature?: boolean;
   calibrationDuration?: number;
+  confidenceThreshold?: number;
+  peakWindowSize?: number;
+  energyWeight?: number;
+  timeDomainWeight?: number;
+  stabilityWeight?: number;
+  rangeWeight?: number;
 }
 
 export interface UseHitDetectionReturn {
@@ -51,6 +57,10 @@ export interface UseHitDetectionReturn {
   resetStats: () => void;
   setThreshold: (value: number) => void;
   setFrequencyRange: (min: number, max: number) => void;
+  setMinHitInterval: (value: number) => void;
+  setConfidenceThreshold: (value: number) => void;
+  setPeakWindowSize: (value: number) => void;
+  setWeights: (weights: { energy?: number; timeDomain?: number; stability?: number; range?: number }) => void;
   startCalibration: () => Promise<void>;
   getAudioData: () => AudioAnalyzerData;
 }
@@ -64,11 +74,17 @@ export function useHitDetection(
     energyThreshold = 80,
     minHitInterval = 250,
     decayRate = 0.95,
-    minFrequency = 20,
-    maxFrequency = 500,
+    minFrequency = 50,
+    maxFrequency = 300,
     useAdaptiveThreshold = true,
     useMultiFeature = true,
-    calibrationDuration = 2000
+    calibrationDuration = 2000,
+    confidenceThreshold = 0.5,
+    peakWindowSize = 5,
+    energyWeight = 0.4,
+    timeDomainWeight = 0.25,
+    stabilityWeight = 0.15,
+    rangeWeight = 0.2
   } = options;
 
   const [result, setResult] = useState<HitDetectionResult>({
@@ -111,6 +127,12 @@ export function useHitDetection(
   const useMultiFeatureRef = useRef(useMultiFeature);
   const noiseSamplesRef = useRef<number[]>([]);
   const peakHistoryRef = useRef<number[]>([]);
+  const confidenceThresholdRef = useRef(confidenceThreshold);
+  const peakWindowSizeRef = useRef(peakWindowSize);
+  const energyWeightRef = useRef(energyWeight);
+  const timeDomainWeightRef = useRef(timeDomainWeight);
+  const stabilityWeightRef = useRef(stabilityWeight);
+  const rangeWeightRef = useRef(rangeWeight);
   const recentHitsRef = useRef<{ time: number; energy: number; confidence: number }[]>([]);
 
   const setThreshold = useCallback((value: number) => {
@@ -120,6 +142,25 @@ export function useHitDetection(
   const setFrequencyRange = useCallback((min: number, max: number) => {
     minFrequencyRef.current = min;
     maxFrequencyRef.current = max;
+  }, []);
+
+  const setMinHitInterval = useCallback((value: number) => {
+    minHitIntervalRef.current = value;
+  }, []);
+
+  const setConfidenceThreshold = useCallback((value: number) => {
+    confidenceThresholdRef.current = value;
+  }, []);
+
+  const setPeakWindowSize = useCallback((value: number) => {
+    peakWindowSizeRef.current = value;
+  }, []);
+
+  const setWeights = useCallback((weights: { energy?: number; timeDomain?: number; stability?: number; range?: number }) => {
+    if (weights.energy !== undefined) energyWeightRef.current = weights.energy;
+    if (weights.timeDomain !== undefined) timeDomainWeightRef.current = weights.timeDomain;
+    if (weights.stability !== undefined) stabilityWeightRef.current = weights.stability;
+    if (weights.range !== undefined) rangeWeightRef.current = weights.range;
   }, []);
 
   const resetStats = useCallback(() => {
@@ -494,6 +535,10 @@ export function useHitDetection(
     resetStats,
     setThreshold,
     setFrequencyRange,
+    setMinHitInterval,
+    setConfidenceThreshold,
+    setPeakWindowSize,
+    setWeights,
     startCalibration: calibrate,
     getAudioData
   };

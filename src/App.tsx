@@ -9,6 +9,13 @@ function App() {
   const [energyThreshold, setEnergyThreshold] = useState(80);
   const [minFrequency, setMinFrequency] = useState(50);
   const [maxFrequency, setMaxFrequency] = useState(300);
+  const [minHitInterval, setMinHitInterval] = useState(250);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
+  const [peakWindowSize, setPeakWindowSize] = useState(5);
+  const [energyWeight, setEnergyWeight] = useState(0.4);
+  const [timeDomainWeight, setTimeDomainWeight] = useState(0.25);
+  const [stabilityWeight, setStabilityWeight] = useState(0.15);
+  const [rangeWeight, setRangeWeight] = useState(0.2);
   const [showPermissionModal, setShowPermissionModal] = useState(true);
 
   const {
@@ -31,15 +38,25 @@ function App() {
     resetStats,
     setThreshold,
     setFrequencyRange,
+    setMinHitInterval: setHitInterval,
+    setConfidenceThreshold: setConfThreshold,
+    setPeakWindowSize: setPWS,
+    setWeights,
     startCalibration
   } = useHitDetection(getAudioData, isListening, {
     energyThreshold,
-    minHitInterval: 250,
+    minHitInterval,
     minFrequency,
     maxFrequency,
     useAdaptiveThreshold: true,
     useMultiFeature: true,
-    calibrationDuration: 2000
+    calibrationDuration: 2000,
+    confidenceThreshold,
+    peakWindowSize,
+    energyWeight,
+    timeDomainWeight,
+    stabilityWeight,
+    rangeWeight
   });
 
   useEffect(() => {
@@ -49,6 +66,22 @@ function App() {
   useEffect(() => {
     setFrequencyRange(minFrequency, maxFrequency);
   }, [minFrequency, maxFrequency, setFrequencyRange]);
+
+  useEffect(() => {
+    setHitInterval(minHitInterval);
+  }, [minHitInterval, setHitInterval]);
+
+  useEffect(() => {
+    setConfThreshold(confidenceThreshold);
+  }, [confidenceThreshold, setConfThreshold]);
+
+  useEffect(() => {
+    setPWS(peakWindowSize);
+  }, [peakWindowSize, setPWS]);
+
+  useEffect(() => {
+    setWeights({ energy: energyWeight, timeDomain: timeDomainWeight, stability: stabilityWeight, range: rangeWeight });
+  }, [energyWeight, timeDomainWeight, stabilityWeight, rangeWeight, setWeights]);
 
   const handleStart = useCallback(async () => {
     await startListening();
@@ -88,6 +121,34 @@ function App() {
 
   const handleMaxFrequencyChange = useCallback((value: number) => {
     setMaxFrequency(value);
+  }, []);
+
+  const handleMinHitIntervalChange = useCallback((value: number) => {
+    setMinHitInterval(value);
+  }, []);
+
+  const handleConfidenceThresholdChange = useCallback((value: number) => {
+    setConfidenceThreshold(value);
+  }, []);
+
+  const handlePeakWindowSizeChange = useCallback((value: number) => {
+    setPeakWindowSize(value);
+  }, []);
+
+  const handleEnergyWeightChange = useCallback((value: number) => {
+    setEnergyWeight(value);
+  }, []);
+
+  const handleTimeDomainWeightChange = useCallback((value: number) => {
+    setTimeDomainWeight(value);
+  }, []);
+
+  const handleStabilityWeightChange = useCallback((value: number) => {
+    setStabilityWeight(value);
+  }, []);
+
+  const handleRangeWeightChange = useCallback((value: number) => {
+    setRangeWeight(value);
   }, []);
 
   return (
@@ -214,6 +275,20 @@ function App() {
               onMinFrequencyChange={handleMinFrequencyChange}
               onMaxFrequencyChange={handleMaxFrequencyChange}
               currentConfidence={currentConfidence}
+              minHitInterval={minHitInterval}
+              onMinHitIntervalChange={handleMinHitIntervalChange}
+              confidenceThreshold={confidenceThreshold}
+              onConfidenceThresholdChange={handleConfidenceThresholdChange}
+              peakWindowSize={peakWindowSize}
+              onPeakWindowSizeChange={handlePeakWindowSizeChange}
+              energyWeight={energyWeight}
+              timeDomainWeight={timeDomainWeight}
+              stabilityWeight={stabilityWeight}
+              rangeWeight={rangeWeight}
+              onEnergyWeightChange={handleEnergyWeightChange}
+              onTimeDomainWeightChange={handleTimeDomainWeightChange}
+              onStabilityWeightChange={handleStabilityWeightChange}
+              onRangeWeightChange={handleRangeWeightChange}
             />
           </div>
         </div>

@@ -11,6 +11,20 @@ interface StatsPanelProps {
   onMinFrequencyChange?: (value: number) => void;
   onMaxFrequencyChange?: (value: number) => void;
   currentConfidence?: number;
+  minHitInterval?: number;
+  onMinHitIntervalChange?: (value: number) => void;
+  confidenceThreshold?: number;
+  onConfidenceThresholdChange?: (value: number) => void;
+  peakWindowSize?: number;
+  onPeakWindowSizeChange?: (value: number) => void;
+  energyWeight?: number;
+  timeDomainWeight?: number;
+  stabilityWeight?: number;
+  rangeWeight?: number;
+  onEnergyWeightChange?: (value: number) => void;
+  onTimeDomainWeightChange?: (value: number) => void;
+  onStabilityWeightChange?: (value: number) => void;
+  onRangeWeightChange?: (value: number) => void;
 }
 
 export const StatsPanel: React.FC<StatsPanelProps> = ({
@@ -22,7 +36,21 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
   maxFrequency = 300,
   onMinFrequencyChange,
   onMaxFrequencyChange,
-  currentConfidence = 0
+  currentConfidence = 0,
+  minHitInterval = 250,
+  onMinHitIntervalChange,
+  confidenceThreshold = 0.5,
+  onConfidenceThresholdChange,
+  peakWindowSize = 5,
+  onPeakWindowSizeChange,
+  energyWeight = 0.4,
+  timeDomainWeight = 0.25,
+  stabilityWeight = 0.15,
+  rangeWeight = 0.2,
+  onEnergyWeightChange,
+  onTimeDomainWeightChange,
+  onStabilityWeightChange,
+  onRangeWeightChange
 }) => {
   const [animatedCount, setAnimatedCount] = useState(0);
 
@@ -237,6 +265,154 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
             </div>
             <p className="text-xs text-gray-500 text-center mt-1">
               篮球拍球约 50-300 Hz
+            </p>
+          </div>
+        )}
+
+        {onMinHitIntervalChange && (
+          <div className="space-y-2 pt-3 border-t border-gray-700">
+            <div className="flex justify-between items-center">
+              <label className="text-sm text-gray-400">最小间隔</label>
+              <span className="text-sm text-yellow-400 font-medium">{minHitInterval} ms</span>
+            </div>
+            <input
+              type="range"
+              min="100"
+              max="1000"
+              value={minHitInterval}
+              onChange={(e) => onMinHitIntervalChange(Number(e.target.value))}
+              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+              disabled={!isActive}
+            />
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>快速连击</span>
+              <span>慢速</span>
+            </div>
+          </div>
+        )}
+
+        {onConfidenceThresholdChange && (
+          <div className="space-y-2 pt-3 border-t border-gray-700">
+            <div className="flex justify-between items-center">
+              <label className="text-sm text-gray-400">置信度阈值</label>
+              <span className="text-sm text-green-400 font-medium">{(confidenceThreshold * 100).toFixed(0)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={confidenceThreshold * 100}
+              onChange={(e) => onConfidenceThresholdChange(Number(e.target.value) / 100)}
+              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+              disabled={!isActive}
+            />
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>宽松检测</span>
+              <span>严格检测</span>
+            </div>
+          </div>
+        )}
+
+        {onPeakWindowSizeChange && (
+          <div className="space-y-2 pt-3 border-t border-gray-700">
+            <div className="flex justify-between items-center">
+              <label className="text-sm text-gray-400">峰值窗口</label>
+              <span className="text-sm text-purple-400 font-medium">{peakWindowSize} 帧</span>
+            </div>
+            <input
+              type="range"
+              min="1"
+              max="15"
+              value={peakWindowSize}
+              onChange={(e) => onPeakWindowSizeChange(Number(e.target.value))}
+              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+              disabled={!isActive}
+            />
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>快速响应</span>
+              <span>平滑检测</span>
+            </div>
+          </div>
+        )}
+
+        {(onEnergyWeightChange || onTimeDomainWeightChange || onStabilityWeightChange || onRangeWeightChange) && (
+          <div className="space-y-3 pt-3 border-t border-gray-700">
+            <div className="text-sm text-gray-400 font-medium">特征权重</div>
+
+            {onEnergyWeightChange && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span className="text-orange-400">能量权重</span>
+                  <span className="text-gray-300">{(energyWeight * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={energyWeight * 100}
+                  onChange={(e) => onEnergyWeightChange(Number(e.target.value) / 100)}
+                  className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                  disabled={!isActive}
+                />
+              </div>
+            )}
+
+            {onTimeDomainWeightChange && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span className="text-pink-400">时域权重</span>
+                  <span className="text-gray-300">{(timeDomainWeight * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={timeDomainWeight * 100}
+                  onChange={(e) => onTimeDomainWeightChange(Number(e.target.value) / 100)}
+                  className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                  disabled={!isActive}
+                />
+              </div>
+            )}
+
+            {onStabilityWeightChange && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span className="text-yellow-400">稳定性权重</span>
+                  <span className="text-gray-300">{(stabilityWeight * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={stabilityWeight * 100}
+                  onChange={(e) => onStabilityWeightChange(Number(e.target.value) / 100)}
+                  className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                  disabled={!isActive}
+                />
+              </div>
+            )}
+
+            {onRangeWeightChange && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs">
+                  <span className="text-cyan-400">频率范围权重</span>
+                  <span className="text-gray-300">{(rangeWeight * 100).toFixed(0)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={rangeWeight * 100}
+                  onChange={(e) => onRangeWeightChange(Number(e.target.value) / 100)}
+                  className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                  disabled={!isActive}
+                />
+              </div>
+            )}
+
+            <p className="text-xs text-gray-500 text-center">
+              总权重: {((energyWeight + timeDomainWeight + stabilityWeight + rangeWeight) * 100).toFixed(0)}%
             </p>
           </div>
         )}
