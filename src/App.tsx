@@ -6,11 +6,15 @@ import { AudioVisualizer } from './components/AudioVisualizer';
 import { StatsPanel } from './components/StatsPanel';
 import { LearningPanel } from './components/LearningPanel';
 
+const BUILD_VERSION = '1.0.0';
+const BUILD_TIME = '2026-05-10';
+
 function App() {
   const [isStarted, setIsStarted] = useState(false);
   const [showPermissionModal, setShowPermissionModal] = useState(true);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [confidenceHistory, setConfidenceHistory] = useState<number[]>([]);
+  const [profileLoadStatus, setProfileLoadStatus] = useState<'loading' | 'loaded' | 'none'>('loading');
   
   const confidenceHistoryRef = useRef<number[]>([]);
 
@@ -57,7 +61,9 @@ function App() {
   useEffect(() => {
     const loaded = loadProfile();
     if (loaded) {
-      console.log('学习配置已加载:', loaded.sampleCount, '个样本');
+      setProfileLoadStatus('loaded');
+    } else {
+      setProfileLoadStatus('none');
     }
   }, []);
 
@@ -69,7 +75,7 @@ function App() {
 
   useEffect(() => {
     confidenceHistoryRef.current.push(currentConfidence);
-    if (confidenceHistoryRef.current.length > 100) {
+    if (confidenceHistoryRef.current.length > 200) {
       confidenceHistoryRef.current.shift();
     }
     setConfidenceHistory([...confidenceHistoryRef.current]);
@@ -103,6 +109,7 @@ function App() {
 
   const handleSaveProfile = useCallback(() => {
     if (saveProfile()) {
+      setProfileLoadStatus('loaded');
       alert('学习结果已保存！检测将使用学习到的参数。');
     } else {
       alert('保存失败');
@@ -112,6 +119,7 @@ function App() {
   const handleClearProfile = useCallback(() => {
     if (confirm('确定要清除学习结果吗？')) {
       clearProfile();
+      setProfileLoadStatus('none');
     }
   }, [clearProfile]);
 
@@ -123,7 +131,13 @@ function App() {
 
   const handleImportProfile = useCallback(() => {
     importProfile();
-  }, [importProfile]);
+    setTimeout(() => {
+      const loaded = loadProfile();
+      if (loaded) {
+        setProfileLoadStatus('loaded');
+      }
+    }, 100);
+  }, [importProfile, loadProfile]);
 
   const handleConfidenceChange = useCallback((value: number) => {
     setConfidenceThreshold(value);
@@ -131,16 +145,30 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900">
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
-        <header className="text-center mb-8">
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">
-            🏀 篮球拍球计数器
-          </h1>
-          <p className="text-gray-400 text-sm md:text-base">
-            基于机器学习的声音识别
-          </p>
-        </header>
+      <header className="flex items-center justify-between px-6 py-3 bg-gray-900/50 border-b border-gray-800">
+        <h1 className="text-2xl font-bold text-white">
+          🏀 篮球拍球计数器
+        </h1>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            {profileLoadStatus === 'loaded' && (
+              <span className="text-xs text-green-400 bg-green-900/30 px-2 py-1 rounded">
+                ✓ 已加载学习配置
+              </span>
+            )}
+            {profileLoadStatus === 'none' && (
+              <span className="text-xs text-yellow-400 bg-yellow-900/30 px-2 py-1 rounded">
+                ⚠ 请先学习
+              </span>
+            )}
+          </div>
+          <div className="text-xs text-gray-500">
+            v{BUILD_VERSION} · {BUILD_TIME}
+          </div>
+        </div>
+      </header>
 
+      <div className="container mx-auto px-4 py-8 max-w-6xl">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <AudioVisualizer
@@ -200,7 +228,7 @@ function App() {
                     max="100"
                     value={confidenceThreshold * 100}
                     onChange={(e) => handleConfidenceChange(Number(e.target.value) / 100)}
-                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                    className="w-full h-3 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
                   />
                   <div className="flex justify-between text-xs text-gray-500 mt-1">
                     <span>低 (易检测)</span>
@@ -208,36 +236,66 @@ function App() {
                   </div>
                 </div>
 
-                {confidenceHistory.length > 0 && (
-                  <div className="bg-gray-800/50 rounded-lg p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm text-gray-400">置信度曲线</span>
-                      <span className={`text-sm font-medium ${
-                        currentConfidence >= confidenceThreshold ? 'text-green-400' : 'text-gray-500'
-                      }`}>
-                        {(currentConfidence * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                    <div className="h-16 relative">
-                      <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-                        <line x1="0" y1={100 - confidenceThreshold * 100} x2="100" y2={100 - confidenceThreshold * 100} 
-                              stroke="#ef4444" strokeWidth="0.5" strokeDasharray="2,2" />
-                        {confidenceHistory.length > 1 && (
+                <div className="bg-gray-800/50 rounded-lg p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-sm text-gray-400">实时置信度</span>
+                    <span className={`text-lg font-bold ${
+                      currentConfidence >= confidenceThreshold ? 'text-green-400' : 'text-gray-400'
+                    }`}>
+                      {(currentConfidence * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="h-24 relative bg-gray-900/50 rounded-lg overflow-hidden">
+                    <svg className="w-full h-full" viewBox="0 0 200 100" preserveAspectRatio="none">
+                      <defs>
+                        <linearGradient id="confidenceGradient" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.3"/>
+                          <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.05"/>
+                        </linearGradient>
+                      </defs>
+                      {confidenceHistory.length > 1 && (
+                        <>
+                          <polygon
+                            fill="url(#confidenceGradient)"
+                            points={confidenceHistory.map((v, i) => {
+                              const x = (i / Math.max(confidenceHistory.length - 1, 1)) * 200;
+                              const y = 100 - v * 100;
+                              return `${x},${y}`;
+                            }).join(' ') + `,200,100,0,100`}
+                          />
                           <polyline
                             fill="none"
                             stroke="#06b6d4"
-                            strokeWidth="1"
+                            strokeWidth="2"
                             points={confidenceHistory.map((v, i) => {
-                              const x = (i / (confidenceHistory.length - 1)) * 100;
+                              const x = (i / Math.max(confidenceHistory.length - 1, 1)) * 200;
                               const y = 100 - v * 100;
                               return `${x},${y}`;
                             }).join(' ')}
                           />
-                        )}
-                      </svg>
-                    </div>
+                        </>
+                      )}
+                      <line 
+                        x1="0" 
+                        y1={100 - confidenceThreshold * 100} 
+                        x2="200" 
+                        y2={100 - confidenceThreshold * 100}
+                        stroke="#ef4444" 
+                        strokeWidth="1.5" 
+                        strokeDasharray="4,4"
+                      />
+                      <text 
+                        x="195" 
+                        y={95 - confidenceThreshold * 100} 
+                        fill="#ef4444" 
+                        fontSize="8" 
+                        textAnchor="end"
+                      >
+                        {(confidenceThreshold * 100).toFixed(0)}%
+                      </text>
+                    </svg>
                   </div>
-                )}
+                </div>
 
                 <div className="flex flex-wrap gap-3">
                   {!isDetecting && !isCalibrating ? (

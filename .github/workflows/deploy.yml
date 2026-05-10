@@ -28,8 +28,31 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+      - name: Get current version
+        id: version
+        run: |
+          if [ -f version.json ]; then
+            CURRENT_VERSION=$(cat version.json | grep -o '"version": "[^"]*"' | cut -d'"' -f4)
+            MAJOR=$(echo $CURRENT_VERSION | cut -d'.' -f1)
+            MINOR=$(echo $CURRENT_VERSION | cut -d'.' -f2)
+            PATCH=$(echo $CURRENT_VERSION | cut -d'.' -f3)
+            PATCH=$((PATCH + 1))
+            NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          else
+            NEW_VERSION="1.0.0"
+          fi
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "update_time=$(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
+      - name: Create version file
+        run: |
+          echo '{"version": "${{ steps.version.outputs.version }}", "updateTime": "${{ steps.version.outputs.update_time }}"}' > version.json
+          cat version.json
       - name: Install dependencies
         run: npm ci
+      - name: Create build-time version
+        run: |
+          echo 'export const BUILD_VERSION = "${{ steps.version.outputs.version }}";' > src/version.ts
+          echo 'export const BUILD_TIME = "${{ steps.version.outputs.update_time }}";' >> src/version.ts
       - name: Build
         run: npm run build
       - name: Setup Pages
