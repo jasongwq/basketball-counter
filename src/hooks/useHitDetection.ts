@@ -529,6 +529,14 @@ export function useHitDetection(
     const minInterval = minHitIntervalRef.current;
     
     let confidence = 0;
+    let isValidEvent = false;
+    
+    if (learnedProfileRef.current) {
+      const features = extractFeatures(audioData, envelopeHistoryRef.current);
+      features.derived.snr = snr;
+      confidence = calculateSimilarity(features, learnedProfileRef.current, noiseAvg);
+      setCurrentConfidence(confidence);
+    }
     
     if (energy > threshold && learnedProfileRef.current) {
       if (!isRisingRef.current && energy > lastEnergyRef.current + 5) {
@@ -545,35 +553,23 @@ export function useHitDetection(
           const canDetect = lastHitTimeRef.current === null || 
                            (currentTime - lastHitTimeRef.current) > minInterval;
           
-          if (canDetect) {
-            const features = extractFeatures(audioData, envelopeHistoryRef.current);
-            features.derived.snr = snr;
+          if (canDetect && confidence > confidenceThresholdRef.current) {
+            hitCountRef.current += 1;
+            lastHitTimeRef.current = currentTime;
+            isValidEvent = true;
             
-            confidence = calculateSimilarity(features, learnedProfileRef.current, noiseAvg);
-            setCurrentConfidence(confidence);
+            hitIdCounterRef.current += 1;
+            frequencyHistoryRef.current.push({
+              id: hitIdCounterRef.current,
+              timestamp: new Date(currentTime),
+              absoluteTime: formatAbsoluteTime(currentTime),
+              relativeTime: formatRelativeTime(currentTime, startTimeRef.current),
+              confidence: Math.round(confidence * 100) / 100,
+              features: extractFeatures(audioData, envelopeHistoryRef.current)
+            });
             
-            if (confidence > confidenceThresholdRef.current) {
-              hitCountRef.current += 1;
-              lastHitTimeRef.current = currentTime;
-              
-              hitIdCounterRef.current += 1;
-              frequencyHistoryRef.current.push({
-                id: hitIdCounterRef.current,
-                timestamp: new Date(currentTime),
-                absoluteTime: formatAbsoluteTime(currentTime),
-                relativeTime: formatRelativeTime(currentTime, startTimeRef.current),
-                confidence: Math.round(confidence * 100) / 100,
-                features
-              });
-              
-              if (frequencyHistoryRef.current.length > 50) {
-                frequencyHistoryRef.current.shift();
-              }
-              
-              confidenceHistoryRef.current.push(confidence);
-              if (confidenceHistoryRef.current.length > 50) {
-                confidenceHistoryRef.current.shift();
-              }
+            if (frequencyHistoryRef.current.length > 50) {
+              frequencyHistoryRef.current.shift();
             }
           }
         }
