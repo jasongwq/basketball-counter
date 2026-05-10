@@ -108,7 +108,7 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
         throw new Error('您的浏览器不支持 Web Audio API。请使用现代浏览器。');
       }
       
-      const audioContext = new AudioContextClass({ sampleRate: 44100 });
+      const audioContext = new AudioContextClass({ sampleRate: 48000 });
       audioContextRef.current = audioContext;
 
       if (audioContext.state === 'suspended') {
@@ -119,8 +119,8 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
       sourceRef.current = source;
 
       const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 2048;
-      analyser.smoothingTimeConstant = 0.3;
+      analyser.fftSize = 8192;
+      analyser.smoothingTimeConstant = 0.5;
       analyser.minDecibels = -90;
       analyser.maxDecibels = -10;
       analyserRef.current = analyser;
