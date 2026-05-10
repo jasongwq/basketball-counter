@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAudioAnalyzer } from './hooks/useAudioAnalyzer';
 import { useHitDetection } from './hooks/useHitDetection';
+import { useSoundLearning } from './hooks/useSoundLearning';
 import { AudioVisualizer } from './components/AudioVisualizer';
 import { StatsPanel } from './components/StatsPanel';
+import { LearningPanel } from './components/LearningPanel';
 
 function App() {
   const [isStarted, setIsStarted] = useState(false);
@@ -18,6 +20,20 @@ function App() {
   const [rangeWeight, setRangeWeight] = useState(0.2);
   const [useAdaptiveThreshold, setUseAdaptiveThreshold] = useState(true);
   const [showPermissionModal, setShowPermissionModal] = useState(true);
+
+  const {
+    isRecording,
+    recordingProgress,
+    samples,
+    learnedProfile,
+    startLearning,
+    stopLearning,
+    saveProfile,
+    loadProfile,
+    clearProfile,
+    deleteSample,
+    updateProfile
+  } = useSoundLearning();
 
   const {
     isListening,
@@ -57,8 +73,13 @@ function App() {
     energyWeight,
     timeDomainWeight,
     stabilityWeight,
-    rangeWeight
+    rangeWeight,
+    learnedProfile
   });
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   useEffect(() => {
     setThreshold(energyThreshold);
@@ -155,6 +176,24 @@ function App() {
   const handleRangeWeightChange = useCallback((value: number) => {
     setRangeWeight(value);
   }, []);
+
+  const handleStartLearning = useCallback((count: number) => {
+    startLearning(getAudioData, count);
+  }, [startLearning, getAudioData]);
+
+  const handleSaveProfile = useCallback(() => {
+    if (saveProfile()) {
+      alert('学习结果已保存！');
+    } else {
+      alert('保存失败');
+    }
+  }, [saveProfile]);
+
+  const handleClearProfile = useCallback(() => {
+    if (confirm('确定要清除学习结果吗？')) {
+      clearProfile();
+    }
+  }, [clearProfile]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900">
@@ -296,6 +335,19 @@ function App() {
               onRangeWeightChange={handleRangeWeightChange}
               useAdaptiveThreshold={useAdaptiveThreshold}
               onUseAdaptiveThresholdChange={handleUseAdaptiveThresholdChange}
+            />
+            <LearningPanel
+              isRecording={isRecording}
+              recordingProgress={recordingProgress}
+              samples={samples}
+              learnedProfile={learnedProfile}
+              onStartLearning={handleStartLearning}
+              onStopLearning={stopLearning}
+              onSaveProfile={handleSaveProfile}
+              onClearProfile={handleClearProfile}
+              onDeleteSample={deleteSample}
+              onUpdateProfile={updateProfile}
+              isActive={isDetecting}
             />
           </div>
         </div>

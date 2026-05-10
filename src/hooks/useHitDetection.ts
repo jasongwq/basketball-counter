@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { AudioAnalyzerData } from './useAudioAnalyzer';
+import { LearnedSoundProfile } from './useSoundLearning';
 
 export interface HitRecord {
   id: number;
@@ -47,6 +48,7 @@ export interface UseHitDetectionOptions {
   timeDomainWeight?: number;
   stabilityWeight?: number;
   rangeWeight?: number;
+  learnedProfile?: LearnedSoundProfile | null;
 }
 
 export interface UseHitDetectionReturn {
@@ -88,7 +90,8 @@ export function useHitDetection(
     energyWeight = 0.4,
     timeDomainWeight = 0.25,
     stabilityWeight = 0.15,
-    rangeWeight = 0.2
+    rangeWeight = 0.2,
+    learnedProfile = null
   } = options;
 
   const [result, setResult] = useState<HitDetectionResult>({
@@ -140,6 +143,7 @@ export function useHitDetection(
   const recentHitsRef = useRef<{ time: number; energy: number; confidence: number }[]>([]);
   const envelopeHistoryRef = useRef<{ energy: number; timestamp: number }[]>([]);
   const zeroCrossingHistoryRef = useRef<number[]>([]);
+  const learnedProfileRef = useRef<LearnedSoundProfile | null>(learnedProfile);
 
   const setThreshold = useCallback((value: number) => {
     thresholdRef.current = value;
@@ -315,6 +319,50 @@ export function useHitDetection(
     const seconds = date.getSeconds().toString().padStart(2, '0');
     const ms = date.getMilliseconds().toString().padStart(3, '0');
     return `${hours}:${minutes}:${seconds}.${ms}`;
+  }
+
+  function calculateLearnedConfidence(
+    dominantFrequency: number,
+    energy: number,
+    spectralCentroid: number,
+    zeroCrossingRate: number,
+    riseTime: number,
+    timeDomainEnergy: number
+  ): number {
+    const profile = learnedProfileRef.current;
+    if (!profile) return 0;
+
+    const w = profile.confidenceWeight;
+    
+    const freqInRange = dominantFrequency >= profile.frequencyRange.min && 
+                        dominantFrequency <= profile.frequencyRange.max;
+    const freqScore = freqInRange ? 1 : Math.max(0, 1 - Math.abs(dominantFrequency - profile.frequencyRange.avg) / 100);
+    
+    const energyDist = Math.abs(energy - profile.energyRange.avg);
+    const energyScore = Math.max(0, 1 - energyDist / (profile.energyRange.stdDev * 3 + 10));
+    
+    const centroidDist = Math.abs(spectralCentroid - profile.spectralCentroidRange.avg);
+    const centroidScore = Math.max(0, 1 - centroidDist / 200);
+    
+    const zcrDist = Math.abs(zeroCrossingRate - profile.zeroCrossingRateRange.avg);
+    const zcrScore = Math.max(0, 1 - zcrDist / 0.05);
+    
+    const riseDist = Math.abs(riseTime - profile.riseTimeRange.avg);
+    const riseScore = Math.max(0, 1 - riseDist / 0.3);
+    
+    const timeDomainDist = Math.abs(timeDomainEnergy - profile.timeDomainEnergyRange.avg);
+    const timeDomainScore = Math.max(0, 1 - timeDomainDist / 0.2);
+
+    const confidence = (
+      energyScore * w.energy +
+      freqScore * w.frequency +
+      centroidScore * w.spectralCentroid +
+      zcrScore * w.zeroCrossingRate +
+      riseScore * w.riseTime +
+      timeDomainScore * w.timeDomain
+    );
+
+    return Math.min(Math.max(confidence, 0), 1);
   }
 
   function formatRelativeTime(timestamp: number): string {
@@ -519,8 +567,21 @@ export function useHitDetection(
 
     const adjustedConfidenceThreshold = confidenceThresholdRef.current;
 
-    if (useMultiFeatureRef.current && confidence > adjustedConfidenceThreshold && isPeak && canDetectHit) {
-      recentHitsRef.current.push({ time: currentTime, energy: rangeEnergy, confidence });
+    let finalConfidence = confidence;
+    if (learnedProfileRef.current) {
+      const learnedConf = calculateLearnedConfidence(
+        dominantFrequency,
+        rangeEnergy,
+        spectralCentroid,
+        zeroCrossingRate,
+        riseTime,
+        timeDomainEnergy
+      );
+      finalConfidence = confidence * 0.4 + learnedConf * 0.6;
+    }
+
+    if (useMultiFeatureRef.current && finalConfidence > adjustedConfidenceThreshold && isPeak && canDetectHit) {
+      recentHitsRef.current.push({ time: currentTime, energy: rangeEnergy, confidence: finalConfidence });
       if (recentHitsRef.current.length > 20) {
         recentHitsRef.current.shift();
       }
@@ -539,7 +600,7 @@ export function useHitDetection(
         energy: Math.round(rangeEnergy * 10) / 10,
         timeDomainEnergy: Math.round(timeDomainEnergy * 1000) / 1000,
         stability: Math.round(stability * 100) / 100,
-        confidence: Math.round(confidence * 100) / 100,
+        confidence: Math.round(finalConfidence * 100) / 100,
         peakFrequency: peakFrequencyRef.current,
         riseTime: Math.round(riseTime * 100) / 100,
         spectralCentroid: Math.round(spectralCentroid),
