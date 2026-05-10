@@ -23,6 +23,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Set build timestamp
+        run: |
+          TIMESTAMP=$(date -u '+%Y/%m/%d %H:%M:%S')
+          echo "export const BUILD_VERSION = '1.0.1';" > src/version.ts
+          echo "export const BUILD_TIME = '${TIMESTAMP}';" >> src/version.ts
+          cat src/version.ts
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
