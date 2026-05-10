@@ -680,6 +680,8 @@ export function useSoundLearning(): UseSoundLearningReturn {
     }
   }, [detectSoundEvent]);
 
+  const storageAvailable = isLocalStorageAvailable();
+
   const startLearning = useCallback((getAudioData: () => AudioAnalyzerData, count: number = 5) => {
     recordingRef.current = {
       isActive: true,
@@ -708,7 +710,7 @@ export function useSoundLearning(): UseSoundLearningReturn {
     }, 500);
   }, [recordingLoop]);
 
-  const stopLearning = useCallback(() => {
+  const stopLearning = useCallback(async () => {
     const state = recordingRef.current;
     state.isActive = false;
     
@@ -726,14 +728,21 @@ export function useSoundLearning(): UseSoundLearningReturn {
           : 10;
         const profile = calculateProfileFromSamples(state.samples, noiseAvg);
         setLearnedProfile(profile);
+        
+        // 自动保存到存储
+        const data = JSON.stringify(profile);
+        if (storageAvailable) {
+          localStorage.setItem(STORAGE_KEY, data);
+          console.log('[SoundLearning] Profile auto-saved to localStorage');
+        }
+        await profileDB.save(STORAGE_KEY, data);
+        console.log('[SoundLearning] Profile auto-saved to IndexedDB');
       } catch (e) {
-        console.error('Failed to calculate profile:', e);
+        console.error('[SoundLearning] Failed to calculate or save profile:', e);
       }
     }
-  }, []);
+  }, [storageAvailable]);
 
-  const storageAvailable = isLocalStorageAvailable();
-  
   const saveProfile = useCallback(async () => {
     if (!learnedProfile) return false;
     
