@@ -105,9 +105,11 @@ function App() {
   }, [stopDetection, stopListening]);
 
   const handleReset = useCallback(() => {
+    console.log('[App] Resetting stats...');
     resetStats();
     confidenceHistoryRef.current = [];
     setConfidenceHistory([]);
+    console.log('[App] Stats reset complete');
   }, [resetStats]);
 
   const handleStartLearning = useCallback((count: number) => {
@@ -333,7 +335,7 @@ function App() {
 
                   <button
                     onClick={handleReset}
-                    disabled={!isStarted || result.hitCount === 0}
+                    disabled={!isStarted}
                     className="bg-gradient-to-r from-gray-600 to-gray-700 text-white px-6 py-3 rounded-lg font-semibold hover:from-gray-700 hover:to-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     🔄 重置
