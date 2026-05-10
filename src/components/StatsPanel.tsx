@@ -113,13 +113,22 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
 
         {result.frequencyHistory.length > 0 && (
           <div className="bg-gray-800/30 rounded-lg p-3">
-            <div className="text-xs text-gray-400 mb-2">频率历史 (最近10次)</div>
-            <div className="flex flex-wrap gap-1">
-              {result.frequencyHistory.slice(-10).map((freq, index) => (
-                <span key={index} className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">
-                  {freq}Hz
-                </span>
-              ))}
+            <div className="text-xs text-gray-400 mb-2">频率记录 (最近10次)</div>
+            <div className="space-y-1 max-h-40 overflow-y-auto">
+              {result.frequencyHistory.slice(-10).reverse().map((item, index) => {
+                const elapsed = item.time - (result.frequencyHistory[0]?.time || 0);
+                const seconds = Math.floor(elapsed / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                const timeStr = `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                return (
+                  <div key={index} className="flex justify-between text-xs bg-gray-700/30 px-2 py-1 rounded">
+                    <span className="text-gray-500">#{result.frequencyHistory.length - index}</span>
+                    <span className="text-blue-300 font-mono">{item.frequency} Hz</span>
+                    <span className="text-gray-500">{timeStr}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

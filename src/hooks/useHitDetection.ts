@@ -9,7 +9,7 @@ export interface HitDetectionResult {
   peakFrequency: number;
   averageEnergy: number;
   lastHitFrequency: number;
-  frequencyHistory: number[];
+  frequencyHistory: { time: number; frequency: number }[];
 }
 
 export interface UseHitDetectionOptions {
@@ -67,9 +67,10 @@ export function useHitDetection(
   const thresholdRef = useRef(energyThreshold);
   const peakFrequencyRef = useRef(0);
   const lastHitFrequencyRef = useRef(0);
-  const frequencyHistoryRef = useRef<number[]>([]);
+  const frequencyHistoryRef = useRef<{ time: number; frequency: number }[]>([]);
   const minFrequencyRef = useRef(minFrequency);
   const maxFrequencyRef = useRef(maxFrequency);
+  const minHitIntervalRef = useRef(minHitInterval);
 
   const setThreshold = useCallback((value: number) => {
     thresholdRef.current = value;
@@ -98,7 +99,8 @@ export function useHitDetection(
     peakFrequencyRef.current = 0;
     lastHitFrequencyRef.current = 0;
     frequencyHistoryRef.current = [];
-  }, []);
+    minHitIntervalRef.current = minHitInterval;
+  }, [minHitInterval]);
 
   const detectHits = useCallback(() => {
     if (!isListening) return;
@@ -131,13 +133,16 @@ export function useHitDetection(
 
     const isAboveThreshold = energy > thresholdRef.current;
     const canDetectHit = lastHitTimeRef.current === null || 
-                          (currentTime - lastHitTimeRef.current) > minHitInterval;
+                          (currentTime - lastHitTimeRef.current) > minHitIntervalRef.current;
 
     if (isAboveThreshold && canDetectHit) {
       hitCountRef.current += 1;
       lastHitTimeRef.current = currentTime;
       lastHitFrequencyRef.current = dominantFrequency;
-      frequencyHistoryRef.current.push(dominantFrequency);
+      frequencyHistoryRef.current.push({
+        time: currentTime,
+        frequency: dominantFrequency
+      });
       if (frequencyHistoryRef.current.length > 50) {
         frequencyHistoryRef.current.shift();
       }
@@ -157,7 +162,7 @@ export function useHitDetection(
     });
 
     animationFrameRef.current = requestAnimationFrame(detectHits);
-  }, [getAudioData, isListening, minHitInterval]);
+  }, [getAudioData, isListening]);
 
   function calculateDominantFrequency(frequencyData: Uint8Array, minFreq: number, maxFreq: number): number {
     const nyquist = 22050;
@@ -185,8 +190,9 @@ export function useHitDetection(
     resetStats();
     setIsDetecting(true);
     startTimeRef.current = Date.now();
+    minHitIntervalRef.current = minHitInterval;
     animationFrameRef.current = requestAnimationFrame(detectHits);
-  }, [isListening, resetStats, detectHits]);
+  }, [isListening, resetStats, detectHits, minHitInterval]);
 
   const stopDetection = useCallback(() => {
     setIsDetecting(false);
