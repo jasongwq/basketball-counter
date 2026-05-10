@@ -600,6 +600,14 @@ export function useHitDetection(
   const startDetection = useCallback(async () => {
     if (!isListening) return;
     
+    thresholdRef.current = thresholdRef.current || energyThreshold;
+    confidenceThresholdRef.current = confidenceThresholdRef.current || confidenceThreshold;
+    peakWindowSizeRef.current = peakWindowSizeRef.current || peakWindowSize;
+    energyWeightRef.current = energyWeightRef.current || energyWeight;
+    timeDomainWeightRef.current = timeDomainWeightRef.current || timeDomainWeight;
+    stabilityWeightRef.current = stabilityWeightRef.current || stabilityWeight;
+    rangeWeightRef.current = rangeWeightRef.current || rangeWeight;
+    
     if (useAdaptiveThresholdRef.current && noiseLevelRef.current === 0) {
       await calibrate();
     }
@@ -612,7 +620,7 @@ export function useHitDetection(
     useMultiFeatureRef.current = useMultiFeature;
     peakHistoryRef.current = [];
     animationFrameRef.current = requestAnimationFrame(detectHits);
-  }, [isListening, resetStats, detectHits, calibrate, minHitInterval, useAdaptiveThreshold, useMultiFeature]);
+  }, [isListening, resetStats, detectHits, calibrate, minHitInterval, useAdaptiveThreshold, useMultiFeature, energyThreshold, confidenceThreshold, peakWindowSize, energyWeight, timeDomainWeight, stabilityWeight, rangeWeight]);
 
   const stopDetection = useCallback(() => {
     setIsDetecting(false);

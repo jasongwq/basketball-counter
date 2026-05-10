@@ -25,6 +25,8 @@ interface StatsPanelProps {
   onTimeDomainWeightChange?: (value: number) => void;
   onStabilityWeightChange?: (value: number) => void;
   onRangeWeightChange?: (value: number) => void;
+  useAdaptiveThreshold?: boolean;
+  onUseAdaptiveThresholdChange?: (value: boolean) => void;
 }
 
 export const StatsPanel: React.FC<StatsPanelProps> = ({
@@ -50,7 +52,9 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
   onEnergyWeightChange,
   onTimeDomainWeightChange,
   onStabilityWeightChange,
-  onRangeWeightChange
+  onRangeWeightChange,
+  useAdaptiveThreshold = false,
+  onUseAdaptiveThresholdChange
 }) => {
   const [animatedCount, setAnimatedCount] = useState(0);
 
@@ -228,9 +232,24 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
             <label className="text-sm text-gray-400">检测阈值</label>
             <span className="text-sm text-orange-400 font-medium">{energyThreshold}</span>
           </div>
+          {onUseAdaptiveThresholdChange && (
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="text-gray-500">自适应阈值</span>
+              <button
+                onClick={() => onUseAdaptiveThresholdChange(!useAdaptiveThreshold)}
+                className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                  useAdaptiveThreshold
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-700 text-gray-400'
+                }`}
+              >
+                {useAdaptiveThreshold ? '开' : '关'}
+              </button>
+            </div>
+          )}
           <input
             type="range"
-            min="20"
+            min="10"
             max="200"
             value={energyThreshold}
             onChange={(e) => onThresholdChange(Number(e.target.value))}

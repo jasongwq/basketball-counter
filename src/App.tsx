@@ -16,6 +16,7 @@ function App() {
   const [timeDomainWeight, setTimeDomainWeight] = useState(0.25);
   const [stabilityWeight, setStabilityWeight] = useState(0.15);
   const [rangeWeight, setRangeWeight] = useState(0.2);
+  const [useAdaptiveThreshold, setUseAdaptiveThreshold] = useState(true);
   const [showPermissionModal, setShowPermissionModal] = useState(true);
 
   const {
@@ -48,7 +49,7 @@ function App() {
     minHitInterval,
     minFrequency,
     maxFrequency,
-    useAdaptiveThreshold: true,
+    useAdaptiveThreshold: useAdaptiveThreshold,
     useMultiFeature: true,
     calibrationDuration: 2000,
     confidenceThreshold,
@@ -82,6 +83,10 @@ function App() {
   useEffect(() => {
     setWeights({ energy: energyWeight, timeDomain: timeDomainWeight, stability: stabilityWeight, range: rangeWeight });
   }, [energyWeight, timeDomainWeight, stabilityWeight, rangeWeight, setWeights]);
+
+  const handleUseAdaptiveThresholdChange = useCallback((value: boolean) => {
+    setUseAdaptiveThreshold(value);
+  }, []);
 
   const handleStart = useCallback(async () => {
     await startListening();
@@ -268,7 +273,7 @@ function App() {
             <StatsPanel
               result={result}
               isActive={isDetecting}
-              energyThreshold={result.adaptiveThreshold || energyThreshold}
+              energyThreshold={energyThreshold}
               onThresholdChange={handleThresholdChange}
               minFrequency={minFrequency}
               maxFrequency={maxFrequency}
@@ -289,6 +294,8 @@ function App() {
               onTimeDomainWeightChange={handleTimeDomainWeightChange}
               onStabilityWeightChange={handleStabilityWeightChange}
               onRangeWeightChange={handleRangeWeightChange}
+              useAdaptiveThreshold={useAdaptiveThreshold}
+              onUseAdaptiveThresholdChange={handleUseAdaptiveThresholdChange}
             />
           </div>
         </div>
