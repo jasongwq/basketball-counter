@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAudioAnalyzer } from './hooks/useAudioAnalyzer';
-import { useHitDetection } from './hooks/useHitDetection';
+import { useHitDetection, DetectionDebugInfo } from './hooks/useHitDetection';
 import { useSoundLearning, LearnedSoundProfile } from './hooks/useSoundLearning';
 import { AudioVisualizer } from './components/AudioVisualizer';
 import { StatsPanel } from './components/StatsPanel';
 import { LearningPanel } from './components/LearningPanel';
+import { DetectionDebugPanel } from './components/DetectionDebugPanel';
 
 const BUILD_VERSION = '1.0.0';
 const BUILD_TIME = '2026-05-10';
@@ -51,7 +52,8 @@ function App() {
     calibrationProgress,
     startDetection,
     stopDetection,
-    resetStats
+    resetStats,
+    debugInfo
   } = useHitDetection(getAudioData, isListening, {
     learnedProfile,
     minHitInterval: 250,
@@ -176,6 +178,8 @@ function App() {
               isActive={isDetecting || isCalibrating}
               dribbleCount={result.hitCount}
             />
+
+            <DetectionDebugPanel debugInfo={debugInfo} isActive={isDetecting} />
 
             <div className="bg-gradient-to-br from-gray-900 to-blue-900 rounded-xl p-6">
               <div className="flex items-center justify-between mb-4">

@@ -27,6 +27,33 @@ export interface UseHitDetectionOptions {
   confidenceThreshold?: number;
 }
 
+export interface DetectionDebugInfo {
+  currentEnergy: number;
+  energyThreshold: number;
+  energyChecked: boolean;
+  energyPass: boolean;
+  isRising: boolean;
+  risingChecked: boolean;
+  risingPass: boolean;
+  peakEnergy: number;
+  peakChecked: boolean;
+  peakPass: boolean;
+  currentConfidence: number;
+  confidenceThreshold: number;
+  confidenceChecked: boolean;
+  confidencePass: boolean;
+  minInterval: number;
+  timeSinceLastHit: number;
+  intervalChecked: boolean;
+  intervalPass: boolean;
+  allChecksComplete: boolean;
+  detected: boolean;
+  failReason: string;
+  hitCount: number;
+  snr: number;
+  dominantFrequency: number;
+}
+
 export interface UseHitDetectionReturn {
   result: HitDetectionResult;
   isDetecting: boolean;
@@ -38,6 +65,7 @@ export interface UseHitDetectionReturn {
   resetStats: () => void;
   startCalibration: () => Promise<void>;
   getAudioData: () => AudioAnalyzerData;
+  debugInfo: DetectionDebugInfo;
 }
 
 const NYQUIST = 22050;
@@ -423,6 +451,32 @@ export function useHitDetection(
   const [isDetecting, setIsDetecting] = useState(false);
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [calibrationProgress, setCalibrationProgress] = useState(0);
+  const [debugInfo, setDebugInfo] = useState<DetectionDebugInfo>({
+    currentEnergy: 0,
+    energyThreshold: 0,
+    energyChecked: false,
+    energyPass: false,
+    isRising: false,
+    risingChecked: false,
+    risingPass: false,
+    peakEnergy: 0,
+    peakChecked: false,
+    peakPass: false,
+    currentConfidence: 0,
+    confidenceThreshold: 0.5,
+    confidenceChecked: false,
+    confidencePass: false,
+    minInterval: 300,
+    timeSinceLastHit: 0,
+    intervalChecked: false,
+    intervalPass: false,
+    allChecksComplete: false,
+    detected: false,
+    failReason: '',
+    hitCount: 0,
+    snr: 0,
+    dominantFrequency: 0
+  });
 
   const animationFrameRef = useRef<number | null>(null);
   const calibrationFrameRef = useRef<number | null>(null);
@@ -530,13 +584,26 @@ export function useHitDetection(
     
     let confidence = 0;
     let isValidEvent = false;
+    let dominantFreq = 0;
     
     if (learnedProfileRef.current) {
       const features = extractFeatures(audioData, envelopeHistoryRef.current);
       features.derived.snr = snr;
       confidence = calculateSimilarity(features, learnedProfileRef.current, noiseAvg);
+      dominantFreq = features.derived.dominantFrequency;
       setCurrentConfidence(confidence);
     }
+    
+    const timeSinceLastHit = lastHitTimeRef.current !== null 
+      ? currentTime - lastHitTimeRef.current 
+      : 999999;
+    
+    let energyPass = energy > threshold;
+    let risingPass = false;
+    let peakPass = false;
+    let confidencePass = false;
+    let intervalPass = false;
+    let failReason = '';
     
     if (energy > threshold && learnedProfileRef.current) {
       if (!isRisingRef.current && energy > lastEnergyRef.current + 5) {
@@ -544,16 +611,28 @@ export function useHitDetection(
         peakEnergyRef.current = 0;
       }
       
+      risingPass = isRisingRef.current;
+      
       if (isRisingRef.current) {
         if (energy > peakEnergyRef.current) {
           peakEnergyRef.current = energy;
         }
         
         if (energy < peakEnergyRef.current * 0.7 && peakEnergyRef.current > threshold) {
+          peakPass = true;
           const canDetect = lastHitTimeRef.current === null || 
                            (currentTime - lastHitTimeRef.current) > minInterval;
           
-          if (canDetect && confidence > confidenceThresholdRef.current) {
+          intervalPass = canDetect;
+          confidencePass = confidence > confidenceThresholdRef.current;
+          
+          if (!canDetect) {
+            failReason = '间隔太短';
+          } else if (!confidencePass) {
+            failReason = `置信度低(${Math.round(confidence * 100)}%)`;
+          }
+          
+          if (canDetect && confidencePass) {
             hitCountRef.current += 1;
             lastHitTimeRef.current = currentTime;
             isValidEvent = true;
@@ -572,8 +651,14 @@ export function useHitDetection(
               frequencyHistoryRef.current.shift();
             }
           }
+        } else {
+          failReason = peakEnergyRef.current <= threshold ? '峰值未达标' : '未到下降点';
         }
+      } else {
+        failReason = '能量未上升';
       }
+    } else {
+      failReason = learnedProfileRef.current ? '能量未达阈值' : '未学习';
     }
     
     if (energy < threshold * 0.5) {
@@ -600,6 +685,33 @@ export function useHitDetection(
       averageConfidence: Math.round(avgConfidence * 100) / 100,
       frequencyHistory: [...frequencyHistoryRef.current],
       learnedProfile: learnedProfileRef.current
+    });
+
+    setDebugInfo({
+      currentEnergy: Math.round(energy * 100) / 100,
+      energyThreshold: Math.round(threshold * 100) / 100,
+      energyChecked: true,
+      energyPass,
+      isRising: isRisingRef.current,
+      risingChecked: energy > threshold,
+      risingPass,
+      peakEnergy: Math.round(peakEnergyRef.current * 100) / 100,
+      peakChecked: isRisingRef.current,
+      peakPass,
+      currentConfidence: Math.round(confidence * 1000) / 1000,
+      confidenceThreshold: confidenceThresholdRef.current,
+      confidenceChecked: peakPass,
+      confidencePass,
+      minInterval,
+      timeSinceLastHit: Math.round(timeSinceLastHit),
+      intervalChecked: peakPass,
+      intervalPass,
+      allChecksComplete: energy > threshold && learnedProfileRef.current !== null,
+      detected: isValidEvent,
+      failReason,
+      hitCount: hitCountRef.current,
+      snr: Math.round(snr * 100) / 100,
+      dominantFrequency: Math.round(dominantFreq)
     });
 
     animationFrameRef.current = requestAnimationFrame(detectHits);
@@ -673,7 +785,8 @@ export function useHitDetection(
     stopDetection,
     resetStats,
     startCalibration: calibrate,
-    getAudioData
+    getAudioData,
+    debugInfo
   };
 }
 
