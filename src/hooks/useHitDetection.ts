@@ -1,6 +1,19 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { AudioAnalyzerData } from './useAudioAnalyzer';
 
+export interface HitRecord {
+  id: number;
+  timestamp: Date;
+  absoluteTime: string;
+  relativeTime: string;
+  frequency: number;
+  energy: number;
+  timeDomainEnergy: number;
+  stability: number;
+  confidence: number;
+  peakFrequency: number;
+}
+
 export interface HitDetectionResult {
   hitCount: number;
   hitsPerMinute: number;
@@ -9,7 +22,7 @@ export interface HitDetectionResult {
   peakFrequency: number;
   averageEnergy: number;
   lastHitFrequency: number;
-  frequencyHistory: { time: number; frequency: number }[];
+  frequencyHistory: HitRecord[];
   noiseLevel: number;
   adaptiveThreshold: number;
   confidence: number;
@@ -87,7 +100,8 @@ export function useHitDetection(
   const thresholdRef = useRef(energyThreshold);
   const peakFrequencyRef = useRef(0);
   const lastHitFrequencyRef = useRef(0);
-  const frequencyHistoryRef = useRef<{ time: number; frequency: number }[]>([]);
+  const frequencyHistoryRef = useRef<HitRecord[]>([]);
+  const hitIdCounterRef = useRef(0);
   const minFrequencyRef = useRef(minFrequency);
   const maxFrequencyRef = useRef(maxFrequency);
   const minHitIntervalRef = useRef(minHitInterval);
@@ -129,6 +143,7 @@ export function useHitDetection(
     peakFrequencyRef.current = 0;
     lastHitFrequencyRef.current = 0;
     frequencyHistoryRef.current = [];
+    hitIdCounterRef.current = 0;
     peakHistoryRef.current = [];
     recentHitsRef.current = [];
   }, []);
@@ -187,6 +202,25 @@ export function useHitDetection(
     
     const diff = Math.abs(mean1 - mean2) / 128;
     return Math.min(diff * 5, 1);
+  }
+
+  function formatAbsoluteTime(timestamp: number): string {
+    const date = new Date(timestamp);
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    const seconds = date.getSeconds().toString().padStart(2, '0');
+    const ms = date.getMilliseconds().toString().padStart(3, '0');
+    return `${hours}:${minutes}:${seconds}.${ms}`;
+  }
+
+  function formatRelativeTime(timestamp: number): string {
+    const start = startTimeRef.current || timestamp;
+    const elapsed = timestamp - start;
+    const totalSeconds = Math.floor(elapsed / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const ms = Math.floor((elapsed % 1000) / 10);
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   }
 
   function calculateConfidence(
@@ -340,9 +374,19 @@ export function useHitDetection(
       hitCountRef.current += 1;
       lastHitTimeRef.current = currentTime;
       lastHitFrequencyRef.current = dominantFrequency;
+      
+      hitIdCounterRef.current += 1;
       frequencyHistoryRef.current.push({
-        time: currentTime,
-        frequency: dominantFrequency
+        id: hitIdCounterRef.current,
+        timestamp: new Date(currentTime),
+        absoluteTime: formatAbsoluteTime(currentTime),
+        relativeTime: formatRelativeTime(currentTime),
+        frequency: dominantFrequency,
+        energy: Math.round(rangeEnergy * 10) / 10,
+        timeDomainEnergy: Math.round(timeDomainEnergy * 1000) / 1000,
+        stability: Math.round(stability * 100) / 100,
+        confidence: Math.round(confidence * 100) / 100,
+        peakFrequency: peakFrequencyRef.current
       });
       if (frequencyHistoryRef.current.length > 50) {
         frequencyHistoryRef.current.shift();
@@ -352,9 +396,19 @@ export function useHitDetection(
         hitCountRef.current += 1;
         lastHitTimeRef.current = currentTime;
         lastHitFrequencyRef.current = dominantFrequency;
+        
+        hitIdCounterRef.current += 1;
         frequencyHistoryRef.current.push({
-          time: currentTime,
-          frequency: dominantFrequency
+          id: hitIdCounterRef.current,
+          timestamp: new Date(currentTime),
+          absoluteTime: formatAbsoluteTime(currentTime),
+          relativeTime: formatRelativeTime(currentTime),
+          frequency: dominantFrequency,
+          energy: Math.round(rangeEnergy * 10) / 10,
+          timeDomainEnergy: Math.round(timeDomainEnergy * 1000) / 1000,
+          stability: Math.round(stability * 100) / 100,
+          confidence: Math.round(confidence * 100) / 100,
+          peakFrequency: peakFrequencyRef.current
         });
         if (frequencyHistoryRef.current.length > 50) {
           frequencyHistoryRef.current.shift();

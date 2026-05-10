@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { HitDetectionResult } from '../hooks/useHitDetection';
+import { HitDetectionResult, HitRecord } from '../hooks/useHitDetection';
 
 interface StatsPanelProps {
   result: HitDetectionResult;
@@ -128,19 +128,48 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
 
         {result.frequencyHistory.length > 0 && (
           <div className="bg-gray-800/30 rounded-lg p-3">
-            <div className="text-xs text-gray-400 mb-2">频率记录 (最近10次)</div>
-            <div className="space-y-1 max-h-40 overflow-y-auto">
-              {result.frequencyHistory.slice(-10).reverse().map((item, index) => {
-                const elapsed = item.time - (result.frequencyHistory[0]?.time || 0);
-                const seconds = Math.floor(elapsed / 1000);
-                const minutes = Math.floor(seconds / 60);
-                const secs = seconds % 60;
-                const timeStr = `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            <div className="text-xs text-gray-400 mb-2">详细记录 (最近10次)</div>
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {result.frequencyHistory.slice(-10).reverse().map((record: HitRecord, index: number) => {
+                const confPercent = (record.confidence * 100).toFixed(0);
+                const confColor = record.confidence >= 0.7 ? 'text-green-400' : 
+                                  record.confidence >= 0.4 ? 'text-yellow-400' : 'text-gray-400';
                 return (
-                  <div key={index} className="flex justify-between text-xs bg-gray-700/30 px-2 py-1 rounded">
-                    <span className="text-gray-500">#{result.frequencyHistory.length - index}</span>
-                    <span className="text-blue-300 font-mono">{item.frequency} Hz</span>
-                    <span className="text-gray-500">{timeStr}</span>
+                  <div key={index} className="bg-gray-900/50 rounded-lg p-2 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-orange-400 font-bold">#{record.id}</span>
+                      <span className={`text-xs font-mono ${confColor}`}>{confPercent}%</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">绝对时间</span>
+                        <span className="text-gray-300 font-mono">{record.absoluteTime}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">相对时间</span>
+                        <span className="text-gray-300 font-mono">{record.relativeTime}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">主频率</span>
+                        <span className="text-blue-300 font-mono">{record.frequency} Hz</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">峰值频率</span>
+                        <span className="text-cyan-300 font-mono">{record.peakFrequency} Hz</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">频率能量</span>
+                        <span className="text-purple-300 font-mono">{record.energy}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">时域能量</span>
+                        <span className="text-pink-300 font-mono">{record.timeDomainEnergy}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">稳定性</span>
+                        <span className="text-yellow-300 font-mono">{record.stability}</span>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
