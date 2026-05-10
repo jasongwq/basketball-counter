@@ -45,18 +45,15 @@ jobs:
           NEW_TAG="v$NEW_VERSION"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "tag=$NEW_TAG" >> $GITHUB_OUTPUT
-          UPDATE_TIME=$(date -u '+%Y-%m-%d %H:%M:%S')
+          UPDATE_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           echo "update_time=$UPDATE_TIME" >> $GITHUB_OUTPUT
-          echo "update_time_js=new Date('$UPDATE_TIME').toLocaleString('zh-CN', { hour12: false })" >> $GITHUB_OUTPUT
-          echo "update_timestamp=$(date +%s)000" >> $GITHUB_OUTPUT
       - name: Install dependencies
         run: npm ci
       - name: Create build-time version
         run: |
           mkdir -p src
           echo 'export const BUILD_VERSION = "${{ steps.version.outputs.version }}";' > src/version.ts
-          echo 'export const BUILD_TIME = ${{ steps.version.outputs.update_time_js }};' >> src/version.ts
-          echo 'export const BUILD_TIMESTAMP = ${{ steps.version.outputs.update_timestamp }};' >> src/version.ts
+          echo "export const BUILD_TIME = new Date('${{ steps.version.outputs.update_time }}').toLocaleString('zh-CN', { hour12: false });" >> src/version.ts
           cat src/version.ts
       - name: Build
         run: npm run build
