@@ -197,6 +197,24 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
                         <span className="text-gray-500">稳定性</span>
                         <span className="text-yellow-300 font-mono">{record.stability}</span>
                       </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">上升时间</span>
+                        <span className="text-orange-300 font-mono">{record.riseTime}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">频谱质心</span>
+                        <span className="text-green-300 font-mono">{record.spectralCentroid} Hz</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">过零率</span>
+                        <span className="text-red-300 font-mono">{record.zeroCrossingRate}</span>
+                      </div>
+                      <div className="flex justify-between col-span-2">
+                        <span className="text-gray-500">短促冲击</span>
+                        <span className={record.isShortBurst ? 'text-green-400' : 'text-gray-500'}>
+                          {record.isShortBurst ? '✓ 是' : '✗ 否'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 );

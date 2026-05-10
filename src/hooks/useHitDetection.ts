@@ -12,6 +12,10 @@ export interface HitRecord {
   stability: number;
   confidence: number;
   peakFrequency: number;
+  riseTime: number;
+  spectralCentroid: number;
+  zeroCrossingRate: number;
+  isShortBurst: boolean;
 }
 
 export interface HitDetectionResult {
@@ -134,6 +138,8 @@ export function useHitDetection(
   const stabilityWeightRef = useRef(stabilityWeight);
   const rangeWeightRef = useRef(rangeWeight);
   const recentHitsRef = useRef<{ time: number; energy: number; confidence: number }[]>([]);
+  const envelopeHistoryRef = useRef<{ energy: number; timestamp: number }[]>([]);
+  const zeroCrossingHistoryRef = useRef<number[]>([]);
 
   const setThreshold = useCallback((value: number) => {
     thresholdRef.current = value;
@@ -245,6 +251,63 @@ export function useHitDetection(
     return Math.min(diff * 5, 1);
   }
 
+  function calculateZeroCrossingRate(timeDomainData: Uint8Array): number {
+    let crossings = 0;
+    for (let i = 1; i < timeDomainData.length; i++) {
+      const prev = timeDomainData[i - 1] - 128;
+      const curr = timeDomainData[i] - 128;
+      if ((prev >= 0 && curr < 0) || (prev < 0 && curr >= 0)) {
+        crossings++;
+      }
+    }
+    return crossings / timeDomainData.length;
+  }
+
+  function calculateSpectralCentroid(frequencyData: Uint8Array): number {
+    let weightedSum = 0;
+    let sum = 0;
+    const nyquist = 22050;
+    for (let i = 0; i < frequencyData.length; i++) {
+      const frequency = (i * nyquist) / frequencyData.length;
+      const magnitude = frequencyData[i];
+      weightedSum += frequency * magnitude;
+      sum += magnitude;
+    }
+    return sum > 0 ? weightedSum / sum : 0;
+  }
+
+  function calculateRiseTime(envelopeHistory: { energy: number; timestamp: number }[]): number {
+    if (envelopeHistory.length < 3) return 0;
+    const recent = envelopeHistory.slice(-5);
+    const minEnergy = Math.min(...recent.map(e => e.energy));
+    const maxEnergy = Math.max(...recent.map(e => e.energy));
+    if (maxEnergy <= minEnergy) return 0;
+    const rise = maxEnergy - minEnergy;
+    const risePercent = rise / maxEnergy;
+    return risePercent;
+  }
+
+  function analyzeSoundType(
+    zeroCrossingRate: number,
+    spectralCentroid: number,
+    riseTime: number,
+    timeDomainEnergy: number
+  ): { isShortBurst: boolean; score: number } {
+    const zcrNorm = Math.min(zeroCrossingRate * 50, 1);
+    const centroidNorm = Math.min(spectralCentroid / 500, 1);
+    const riseNorm = Math.min(riseTime * 2, 1);
+    const energyNorm = Math.min(timeDomainEnergy * 10, 1);
+    
+    const burstScore = (1 - zcrNorm) * 0.3 + riseNorm * 0.3 + (1 - centroidNorm) * 0.2 + energyNorm * 0.2;
+    
+    const isShortBurst = burstScore > 0.5 && zcrNorm < 0.5 && riseNorm > 0.3;
+    
+    return {
+      isShortBurst,
+      score: burstScore
+    };
+  }
+
   function formatAbsoluteTime(timestamp: number): string {
     const date = new Date(timestamp);
     const hours = date.getHours().toString().padStart(2, '0');
@@ -268,7 +331,11 @@ export function useHitDetection(
     energy: number,
     timeDomainEnergy: number,
     stability: number,
-    inRange: boolean
+    inRange: boolean,
+    zeroCrossingRate?: number,
+    spectralCentroid?: number,
+    riseTime?: number,
+    burstScore?: number
   ): number {
     if (!useMultiFeatureRef.current) {
       return inRange ? 1 : 0;
@@ -278,13 +345,33 @@ export function useHitDetection(
     const timeDomainScore = Math.min(timeDomainEnergy * 10, 1);
     const stabilityScore = stability;
     const rangeScore = inRange ? 1 : 0;
+    
+    let burstBonus = 0;
+    if (burstScore !== undefined) {
+      burstBonus = burstScore * 0.15;
+    }
+    
+    let lowZcrBonus = 0;
+    if (zeroCrossingRate !== undefined) {
+      const zcrNorm = Math.min(zeroCrossingRate * 50, 1);
+      lowZcrBonus = (1 - zcrNorm) * 0.1;
+    }
+    
+    let lowCentroidBonus = 0;
+    if (spectralCentroid !== undefined) {
+      const centroidNorm = Math.min(spectralCentroid / 500, 1);
+      lowCentroidBonus = (1 - centroidNorm) * 0.1;
+    }
 
-    const confidence = (
-      energyScore * 0.4 +
-      timeDomainScore * 0.25 +
-      stabilityScore * 0.15 +
-      rangeScore * 0.2
+    const baseConfidence = (
+      energyScore * 0.3 +
+      timeDomainScore * 0.2 +
+      stabilityScore * 0.1 +
+      rangeScore * 0.15
     );
+    
+    const bonusConfidence = burstBonus + lowZcrBonus + lowCentroidBonus;
+    const confidence = Math.min(baseConfidence + bonusConfidence, 1);
 
     return Math.min(Math.max(confidence, 0), 1);
   }
@@ -356,6 +443,26 @@ export function useHitDetection(
       minFrequencyRef.current,
       maxFrequencyRef.current
     );
+    const zeroCrossingRate = calculateZeroCrossingRate(timeDomainData);
+    const spectralCentroid = calculateSpectralCentroid(frequencyData);
+    
+    envelopeHistoryRef.current.push({ energy: rangeEnergy, timestamp: Date.now() });
+    if (envelopeHistoryRef.current.length > 10) {
+      envelopeHistoryRef.current.shift();
+    }
+    const riseTime = calculateRiseTime(envelopeHistoryRef.current);
+    
+    zeroCrossingHistoryRef.current.push(zeroCrossingRate);
+    if (zeroCrossingHistoryRef.current.length > 5) {
+      zeroCrossingHistoryRef.current.shift();
+    }
+    
+    const { isShortBurst, score: burstScore } = analyzeSoundType(
+      zeroCrossingRate,
+      spectralCentroid,
+      riseTime,
+      timeDomainEnergy
+    );
     
     const isInFrequencyRange = dominantFrequency >= minFrequencyRef.current && 
                                 dominantFrequency <= maxFrequencyRef.current;
@@ -364,7 +471,11 @@ export function useHitDetection(
       rangeEnergy,
       timeDomainEnergy,
       stability,
-      isInFrequencyRange
+      isInFrequencyRange,
+      zeroCrossingRate,
+      spectralCentroid,
+      riseTime,
+      burstScore
     );
     
     setCurrentEnergy(rangeEnergy);
@@ -406,7 +517,9 @@ export function useHitDetection(
     const recentPeak = Math.max(...peakHistoryRef.current);
     const isPeak = rangeEnergy >= recentPeak && rangeEnergy > effectiveThreshold;
 
-    if (useMultiFeatureRef.current && confidence > 0.5 && isPeak && canDetectHit) {
+    const adjustedConfidenceThreshold = confidenceThresholdRef.current * (isShortBurst ? 0.7 : 1.3);
+
+    if (useMultiFeatureRef.current && confidence > adjustedConfidenceThreshold && isPeak && canDetectHit && isShortBurst) {
       recentHitsRef.current.push({ time: currentTime, energy: rangeEnergy, confidence });
       if (recentHitsRef.current.length > 20) {
         recentHitsRef.current.shift();
@@ -427,7 +540,11 @@ export function useHitDetection(
         timeDomainEnergy: Math.round(timeDomainEnergy * 1000) / 1000,
         stability: Math.round(stability * 100) / 100,
         confidence: Math.round(confidence * 100) / 100,
-        peakFrequency: peakFrequencyRef.current
+        peakFrequency: peakFrequencyRef.current,
+        riseTime: Math.round(riseTime * 100) / 100,
+        spectralCentroid: Math.round(spectralCentroid),
+        zeroCrossingRate: Math.round(zeroCrossingRate * 1000) / 1000,
+        isShortBurst
       });
       if (frequencyHistoryRef.current.length > 50) {
         frequencyHistoryRef.current.shift();
@@ -449,7 +566,11 @@ export function useHitDetection(
           timeDomainEnergy: Math.round(timeDomainEnergy * 1000) / 1000,
           stability: Math.round(stability * 100) / 100,
           confidence: Math.round(confidence * 100) / 100,
-          peakFrequency: peakFrequencyRef.current
+          peakFrequency: peakFrequencyRef.current,
+          riseTime: Math.round(riseTime * 100) / 100,
+          spectralCentroid: Math.round(spectralCentroid),
+          zeroCrossingRate: Math.round(zeroCrossingRate * 1000) / 1000,
+          isShortBurst
         });
         if (frequencyHistoryRef.current.length > 50) {
           frequencyHistoryRef.current.shift();
