@@ -83,16 +83,86 @@ export interface UseSoundLearningReturn {
   learnedProfile: LearnedSoundProfile | null;
   startLearning: (getAudioData: () => AudioAnalyzerData, count?: number) => void;
   stopLearning: () => void;
-  saveProfile: () => boolean;
-  loadProfile: () => LearnedSoundProfile | null;
-  clearProfile: () => void;
-  deleteSample: (index: number) => void;
-  updateProfile: (profile: LearnedSoundProfile) => boolean;
+  saveProfile: () => Promise<boolean>;
+  loadProfile: () => Promise<LearnedSoundProfile | null>;
+  clearProfile: () => Promise<void>;
+  deleteSample: (index: number) => Promise<void>;
+  updateProfile: (profile: LearnedSoundProfile) => Promise<boolean>;
   exportProfile: () => void;
   importProfile: () => void;
 }
 
 const STORAGE_KEY = 'basketball_sound_profile';
+const DB_NAME = 'basketball_counter_db';
+const DB_VERSION = 1;
+const STORE_NAME = 'profiles';
+
+// IndexedDB 作为持久化备用存储
+class ProfileDB {
+  private db: IDBDatabase | null = null;
+  
+  async init(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      
+      request.onerror = () => resolve(false);
+      request.onsuccess = () => {
+        this.db = request.result;
+        resolve(true);
+      };
+      
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        }
+      };
+    });
+  }
+  
+  async save(key: string, data: string): Promise<boolean> {
+    if (!this.db) await this.init();
+    if (!this.db) return false;
+    
+    return new Promise((resolve) => {
+      const tx = this.db!.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.put({ id: key, data });
+      request.onsuccess = () => resolve(true);
+      request.onerror = () => resolve(false);
+    });
+  }
+  
+  async load(key: string): Promise<string | null> {
+    if (!this.db) await this.init();
+    if (!this.db) return null;
+    
+    return new Promise((resolve) => {
+      const tx = this.db!.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.get(key);
+      request.onsuccess = () => {
+        resolve(request.result?.data || null);
+      };
+      request.onerror = () => resolve(null);
+    });
+  }
+  
+  async clear(key: string): Promise<boolean> {
+    if (!this.db) await this.init();
+    if (!this.db) return false;
+    
+    return new Promise((resolve) => {
+      const tx = this.db!.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.delete(key);
+      request.onsuccess = () => resolve(true);
+      request.onerror = () => resolve(false);
+    });
+  }
+}
+
+const profileDB = new ProfileDB();
 
 // 检查 localStorage 是否可用
 function isLocalStorageAvailable(): boolean {
@@ -105,9 +175,6 @@ function isLocalStorageAvailable(): boolean {
     return false;
   }
 }
-
-// 内存存储作为 fallback
-const memoryStorage: { [key: string]: string } = {};
 
 function extractFeatures(
   audioData: AudioAnalyzerData,
@@ -667,76 +734,92 @@ export function useSoundLearning(): UseSoundLearningReturn {
 
   const storageAvailable = isLocalStorageAvailable();
   
-  const saveProfile = useCallback(() => {
+  const saveProfile = useCallback(async () => {
     if (!learnedProfile) return false;
     
-    try {
-      const profileToSave = {
-        ...learnedProfile,
-        updatedAt: new Date().toISOString()
-      };
-      const data = JSON.stringify(profileToSave);
-      
-      if (storageAvailable) {
+    const profileToSave = {
+      ...learnedProfile,
+      updatedAt: new Date().toISOString()
+    };
+    const data = JSON.stringify(profileToSave);
+    
+    // 优先使用 localStorage
+    if (storageAvailable) {
+      try {
         localStorage.setItem(STORAGE_KEY, data);
         console.log('[SoundLearning] Profile saved to localStorage');
-      } else {
-        memoryStorage[STORAGE_KEY] = data;
-        console.log('[SoundLearning] Profile saved to memory (localStorage unavailable)');
-      }
-      return true;
-    } catch (e) {
-      console.error('[SoundLearning] Failed to save profile:', e);
-      // 尝试内存存储
-      try {
-        memoryStorage[STORAGE_KEY] = JSON.stringify(learnedProfile);
+        
+        // 同时保存到 IndexedDB 作为备份
+        await profileDB.save(STORAGE_KEY, data);
+        console.log('[SoundLearning] Profile backed up to IndexedDB');
         return true;
-      } catch {
-        return false;
+      } catch (e) {
+        console.error('[SoundLearning] localStorage save failed:', e);
       }
     }
+    
+    // 如果 localStorage 失败，使用 IndexedDB
+    const success = await profileDB.save(STORAGE_KEY, data);
+    if (success) {
+      console.log('[SoundLearning] Profile saved to IndexedDB');
+      return true;
+    }
+    
+    console.error('[SoundLearning] All storage methods failed');
+    return false;
   }, [learnedProfile, storageAvailable]);
 
-  const loadProfile = useCallback(() => {
+  const loadProfile = useCallback(async () => {
     try {
       let stored: string | null = null;
       
+      // 优先从 localStorage 加载
       if (storageAvailable) {
         stored = localStorage.getItem(STORAGE_KEY);
-        console.log('[SoundLearning] Loading from localStorage:', stored ? 'found' : 'not found');
-      } else {
-        stored = memoryStorage[STORAGE_KEY] || null;
-        console.log('[SoundLearning] Loading from memory:', stored ? 'found' : 'not found');
+        if (stored) {
+          console.log('[SoundLearning] Profile loaded from localStorage');
+        }
       }
       
-      if (stored) {
-        const profile = JSON.parse(stored) as LearnedSoundProfile;
-        setLearnedProfile(profile);
-        setSamples([]);
-        console.log('[SoundLearning] Profile loaded successfully');
-        return profile;
+      // 如果 localStorage 没有，尝试 IndexedDB
+      if (!stored) {
+        stored = await profileDB.load(STORAGE_KEY);
+        if (stored) {
+          console.log('[SoundLearning] Profile loaded from IndexedDB');
+        }
       }
+      
+      if (!stored) {
+        console.log('[SoundLearning] No profile found in any storage');
+        return null;
+      }
+      
+      const profile = JSON.parse(stored) as LearnedSoundProfile;
+      setLearnedProfile(profile);
+      setSamples([]);
+      console.log('[SoundLearning] Profile loaded successfully');
+      return profile;
     } catch (e) {
       console.error('[SoundLearning] Failed to load profile:', e);
+      return null;
     }
-    return null;
   }, [storageAvailable]);
 
-  const clearProfile = useCallback(() => {
+  const clearProfile = useCallback(async () => {
     try {
       if (storageAvailable) {
         localStorage.removeItem(STORAGE_KEY);
       }
-      delete memoryStorage[STORAGE_KEY];
+      await profileDB.clear(STORAGE_KEY);
       setLearnedProfile(null);
       setSamples([]);
-      console.log('[SoundLearning] Profile cleared');
+      console.log('[SoundLearning] Profile cleared from all storages');
     } catch (e) {
       console.error('[SoundLearning] Failed to clear profile:', e);
     }
   }, [storageAvailable]);
 
-  const deleteSample = useCallback((index: number) => {
+  const deleteSample = useCallback(async (index: number) => {
     const newSamples = samples.filter((_, i) => i !== index);
     setSamples(newSamples);
     
@@ -744,28 +827,48 @@ export function useSoundLearning(): UseSoundLearningReturn {
       try {
         const profile = calculateProfileFromSamples(newSamples, learnedProfile.noiseFloor);
         setLearnedProfile(profile);
+        
+        // 自动保存更新后的配置
+        const data = JSON.stringify(profile);
+        if (storageAvailable) {
+          localStorage.setItem(STORAGE_KEY, data);
+        }
+        await profileDB.save(STORAGE_KEY, data);
+        console.log('[SoundLearning] Profile auto-saved after deleting sample');
       } catch (e) {
-        console.error('Failed to recalculate profile:', e);
+        console.error('[SoundLearning] Failed to recalculate profile:', e);
       }
     } else {
       setLearnedProfile(null);
+      // 清除存储
+      if (storageAvailable) {
+        localStorage.removeItem(STORAGE_KEY);
+      }
+      await profileDB.clear(STORAGE_KEY);
     }
-  }, [samples, learnedProfile]);
+  }, [samples, learnedProfile, storageAvailable]);
 
-  const updateProfile = useCallback((profile: LearnedSoundProfile) => {
+  const updateProfile = useCallback(async (profile: LearnedSoundProfile) => {
     try {
       const updatedProfile = {
         ...profile,
         updatedAt: new Date().toISOString()
       };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedProfile));
+      const data = JSON.stringify(updatedProfile);
+      
+      if (storageAvailable) {
+        localStorage.setItem(STORAGE_KEY, data);
+      }
+      await profileDB.save(STORAGE_KEY, data);
+      
       setLearnedProfile(updatedProfile);
+      console.log('[SoundLearning] Profile updated');
       return true;
     } catch (e) {
-      console.error('Failed to update profile:', e);
+      console.error('[SoundLearning] Failed to update profile:', e);
       return false;
     }
-  }, []);
+  }, [storageAvailable]);
 
   const exportProfile = useCallback(() => {
     if (!learnedProfile) return;

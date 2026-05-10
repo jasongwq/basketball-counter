@@ -60,14 +60,15 @@ function App() {
 
   useEffect(() => {
     console.log('[App] Loading profile on mount...');
-    const loaded = loadProfile();
-    if (loaded) {
-      console.log('[App] Profile loaded successfully');
-      setProfileLoadStatus('loaded');
-    } else {
-      console.log('[App] No profile found');
-      setProfileLoadStatus('none');
-    }
+    loadProfile().then((loaded) => {
+      if (loaded) {
+        console.log('[App] Profile loaded successfully');
+        setProfileLoadStatus('loaded');
+      } else {
+        console.log('[App] No profile found');
+        setProfileLoadStatus('none');
+      }
+    });
   }, [loadProfile]);
 
   useEffect(() => {
@@ -132,10 +133,10 @@ function App() {
     }
   }, [learnedProfile, exportProfile]);
 
-  const handleImportProfile = useCallback(() => {
+  const handleImportProfile = useCallback(async () => {
     importProfile();
-    setTimeout(() => {
-      const loaded = loadProfile();
+    setTimeout(async () => {
+      const loaded = await loadProfile();
       if (loaded) {
         setProfileLoadStatus('loaded');
       }
