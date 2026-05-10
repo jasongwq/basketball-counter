@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAudioAnalyzer } from './hooks/useAudioAnalyzer';
 import { useHitDetection } from './hooks/useHitDetection';
-import { useSoundLearning } from './hooks/useSoundLearning';
+import { useSoundLearning, LearnedSoundProfile } from './hooks/useSoundLearning';
 import { AudioVisualizer } from './components/AudioVisualizer';
 import { StatsPanel } from './components/StatsPanel';
 import { LearningPanel } from './components/LearningPanel';
@@ -9,6 +9,10 @@ import { LearningPanel } from './components/LearningPanel';
 function App() {
   const [isStarted, setIsStarted] = useState(false);
   const [showPermissionModal, setShowPermissionModal] = useState(true);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
+  const [confidenceHistory, setConfidenceHistory] = useState<number[]>([]);
+  
+  const confidenceHistoryRef = useRef<number[]>([]);
 
   const {
     isListening,
@@ -30,7 +34,9 @@ function App() {
     loadProfile,
     clearProfile,
     deleteSample,
-    updateProfile
+    updateProfile,
+    exportProfile,
+    importProfile
   } = useSoundLearning();
 
   const {
@@ -45,12 +51,15 @@ function App() {
   } = useHitDetection(getAudioData, isListening, {
     learnedProfile,
     minHitInterval: 250,
-    confidenceThreshold: 0.5
+    confidenceThreshold
   });
 
   useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+    const loaded = loadProfile();
+    if (loaded) {
+      console.log('学习配置已加载:', loaded.sampleCount, '个样本');
+    }
+  }, []);
 
   useEffect(() => {
     if (error) {
@@ -58,10 +67,20 @@ function App() {
     }
   }, [error]);
 
+  useEffect(() => {
+    confidenceHistoryRef.current.push(currentConfidence);
+    if (confidenceHistoryRef.current.length > 100) {
+      confidenceHistoryRef.current.shift();
+    }
+    setConfidenceHistory([...confidenceHistoryRef.current]);
+  }, [currentConfidence]);
+
   const handleStart = useCallback(async () => {
     await startListening();
     setShowPermissionModal(false);
     setIsStarted(true);
+    confidenceHistoryRef.current = [];
+    setConfidenceHistory([]);
     startDetection();
   }, [startListening, startDetection]);
 
@@ -74,6 +93,8 @@ function App() {
 
   const handleReset = useCallback(() => {
     resetStats();
+    confidenceHistoryRef.current = [];
+    setConfidenceHistory([]);
   }, [resetStats]);
 
   const handleStartLearning = useCallback((count: number) => {
@@ -94,12 +115,19 @@ function App() {
     }
   }, [clearProfile]);
 
-  const formatDuration = (ms: number): string => {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
-  };
+  const handleExportProfile = useCallback(() => {
+    if (learnedProfile) {
+      exportProfile();
+    }
+  }, [learnedProfile, exportProfile]);
+
+  const handleImportProfile = useCallback(() => {
+    importProfile();
+  }, [importProfile]);
+
+  const handleConfidenceChange = useCallback((value: number) => {
+    setConfidenceThreshold(value);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900">
@@ -158,30 +186,84 @@ function App() {
                 </div>
               )}
 
-              <div className="flex flex-wrap gap-3">
-                {!isDetecting && !isCalibrating ? (
-                  <button
-                    onClick={handleStart}
-                    className="flex-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-orange-600 hover:to-orange-700 transition-all transform hover:scale-105 shadow-lg"
-                  >
-                    ▶ 开始检测
-                  </button>
-                ) : isDetecting ? (
-                  <button
-                    onClick={handleStop}
-                    className="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-red-600 hover:to-red-700 transition-all transform hover:scale-105 shadow-lg"
-                  >
-                    ⏹ 停止检测
-                  </button>
-                ) : null}
+              <div className="space-y-4">
+                <div className="bg-gray-800/50 rounded-lg p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <label className="text-sm text-gray-400">置信度阈值</label>
+                    <span className="text-lg font-bold text-cyan-400">
+                      {(confidenceThreshold * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={confidenceThreshold * 100}
+                    onChange={(e) => handleConfidenceChange(Number(e.target.value) / 100)}
+                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>低 (易检测)</span>
+                    <span>高 (严格)</span>
+                  </div>
+                </div>
 
-                <button
-                  onClick={handleReset}
-                  disabled={!isStarted || result.hitCount === 0}
-                  className="bg-gradient-to-r from-gray-600 to-gray-700 text-white px-6 py-3 rounded-lg font-semibold hover:from-gray-700 hover:to-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  🔄 重置
-                </button>
+                {confidenceHistory.length > 0 && (
+                  <div className="bg-gray-800/50 rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm text-gray-400">置信度曲线</span>
+                      <span className={`text-sm font-medium ${
+                        currentConfidence >= confidenceThreshold ? 'text-green-400' : 'text-gray-500'
+                      }`}>
+                        {(currentConfidence * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    <div className="h-16 relative">
+                      <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                        <line x1="0" y1={100 - confidenceThreshold * 100} x2="100" y2={100 - confidenceThreshold * 100} 
+                              stroke="#ef4444" strokeWidth="0.5" strokeDasharray="2,2" />
+                        {confidenceHistory.length > 1 && (
+                          <polyline
+                            fill="none"
+                            stroke="#06b6d4"
+                            strokeWidth="1"
+                            points={confidenceHistory.map((v, i) => {
+                              const x = (i / (confidenceHistory.length - 1)) * 100;
+                              const y = 100 - v * 100;
+                              return `${x},${y}`;
+                            }).join(' ')}
+                          />
+                        )}
+                      </svg>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-3">
+                  {!isDetecting && !isCalibrating ? (
+                    <button
+                      onClick={handleStart}
+                      className="flex-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-orange-600 hover:to-orange-700 transition-all transform hover:scale-105 shadow-lg"
+                    >
+                      ▶ 开始检测
+                    </button>
+                  ) : isDetecting ? (
+                    <button
+                      onClick={handleStop}
+                      className="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-red-600 hover:to-red-700 transition-all transform hover:scale-105 shadow-lg"
+                    >
+                      ⏹ 停止检测
+                    </button>
+                  ) : null}
+
+                  <button
+                    onClick={handleReset}
+                    disabled={!isStarted || result.hitCount === 0}
+                    className="bg-gradient-to-r from-gray-600 to-gray-700 text-white px-6 py-3 rounded-lg font-semibold hover:from-gray-700 hover:to-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    🔄 重置
+                  </button>
+                </div>
               </div>
 
               {error && (
@@ -197,6 +279,7 @@ function App() {
               result={result}
               isActive={isDetecting}
               currentConfidence={currentConfidence}
+              confidenceThreshold={confidenceThreshold}
             />
             <LearningPanel
               isRecording={isRecording}
@@ -209,6 +292,8 @@ function App() {
               onClearProfile={handleClearProfile}
               onDeleteSample={deleteSample}
               onUpdateProfile={updateProfile}
+              onExportProfile={handleExportProfile}
+              onImportProfile={handleImportProfile}
               isActive={isDetecting}
             />
           </div>

@@ -12,6 +12,8 @@ interface LearningPanelProps {
   onClearProfile: () => void;
   onDeleteSample: (index: number) => void;
   onUpdateProfile: (profile: LearnedSoundProfile) => void;
+  onExportProfile?: () => void;
+  onImportProfile?: () => void;
   isActive: boolean;
 }
 
@@ -26,6 +28,8 @@ export const LearningPanel: React.FC<LearningPanelProps> = ({
   onClearProfile,
   onDeleteSample,
   onUpdateProfile,
+  onExportProfile,
+  onImportProfile,
   isActive
 }) => {
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -239,6 +243,22 @@ export const LearningPanel: React.FC<LearningPanelProps> = ({
               className="bg-gradient-to-r from-red-600 to-red-700 text-white px-3 py-2 rounded-lg font-medium hover:from-red-700 hover:to-red-800 transition-all text-sm"
             >
               清除
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={onExportProfile}
+              disabled={!learnedProfile}
+              className="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white px-3 py-2 rounded-lg font-medium hover:from-green-700 hover:to-green-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+            >
+              📤 导出
+            </button>
+            <button
+              onClick={onImportProfile}
+              className="flex-1 bg-gradient-to-r from-purple-600 to-purple-700 text-white px-3 py-2 rounded-lg font-medium hover:from-purple-700 hover:to-purple-800 transition-all text-sm"
+            >
+              📥 导入
             </button>
           </div>
         </div>

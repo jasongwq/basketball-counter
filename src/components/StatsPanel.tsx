@@ -5,12 +5,14 @@ interface StatsPanelProps {
   result: HitDetectionResult;
   isActive: boolean;
   currentConfidence: number;
+  confidenceThreshold?: number;
 }
 
 export const StatsPanel: React.FC<StatsPanelProps> = ({
   result,
   isActive,
-  currentConfidence
+  currentConfidence,
+  confidenceThreshold = 0.5
 }) => {
   const [animatedCount, setAnimatedCount] = useState(0);
 
@@ -31,8 +33,8 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
   };
 
   const getConfidenceColor = (conf: number): string => {
-    if (conf >= 0.7) return 'text-green-400';
-    if (conf >= 0.4) return 'text-yellow-400';
+    if (conf >= confidenceThreshold) return 'text-green-400';
+    if (conf >= confidenceThreshold * 0.6) return 'text-yellow-400';
     return 'text-gray-400';
   };
 
@@ -90,8 +92,8 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
           <div className="space-y-2 max-h-60 overflow-y-auto">
             {result.frequencyHistory.slice(-5).reverse().map((record: HitRecord, index: number) => {
               const confPercent = (record.confidence * 100).toFixed(0);
-              const confColor = record.confidence >= 0.7 ? 'text-green-400' : 
-                                record.confidence >= 0.4 ? 'text-yellow-400' : 'text-gray-400';
+              const confColor = record.confidence >= confidenceThreshold ? 'text-green-400' : 
+                                record.confidence >= confidenceThreshold * 0.6 ? 'text-yellow-400' : 'text-gray-400';
               return (
                 <div key={index} className="bg-gray-900/50 rounded-lg p-2 space-y-1">
                   <div className="flex items-center justify-between">

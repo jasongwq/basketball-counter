@@ -88,6 +88,8 @@ export interface UseSoundLearningReturn {
   clearProfile: () => void;
   deleteSample: (index: number) => void;
   updateProfile: (profile: LearnedSoundProfile) => boolean;
+  exportProfile: () => void;
+  importProfile: () => void;
 }
 
 const STORAGE_KEY = 'basketball_sound_profile';
@@ -720,6 +722,59 @@ export function useSoundLearning(): UseSoundLearningReturn {
     }
   }, []);
 
+  const exportProfile = useCallback(() => {
+    if (!learnedProfile) return;
+    
+    try {
+      const dataStr = JSON.stringify(learnedProfile, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `basketball_profile_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Failed to export profile:', e);
+      alert('导出失败');
+    }
+  }, [learnedProfile]);
+
+  const importProfile = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const profile = JSON.parse(event.target?.result as string) as LearnedSoundProfile;
+          
+          if (!profile.version || !profile.sampleCount || !profile.timeDomain) {
+            throw new Error('Invalid profile format');
+          }
+          
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+          setLearnedProfile(profile);
+          setSamples([]);
+          alert('导入成功！');
+        } catch (err) {
+          console.error('Failed to import profile:', err);
+          alert('导入失败：文件格式不正确');
+        }
+      };
+      reader.readAsText(file);
+    };
+    
+    input.click();
+  }, []);
+
   return {
     isRecording,
     recordingProgress,
@@ -731,6 +786,8 @@ export function useSoundLearning(): UseSoundLearningReturn {
     loadProfile,
     clearProfile,
     deleteSample,
-    updateProfile
+    updateProfile,
+    exportProfile,
+    importProfile
   };
 }
