@@ -114,8 +114,9 @@ function App() {
     startLearning(getAudioData, count);
   }, [startLearning, getAudioData]);
 
-  const handleSaveProfile = useCallback(() => {
-    if (saveProfile()) {
+  const handleSaveProfile = useCallback(async () => {
+    const success = await saveProfile();
+    if (success) {
       setProfileLoadStatus('loaded');
       alert('学习结果已保存！检测将使用学习到的参数。');
     } else {
@@ -123,9 +124,9 @@ function App() {
     }
   }, [saveProfile]);
 
-  const handleClearProfile = useCallback(() => {
+  const handleClearProfile = useCallback(async () => {
     if (confirm('确定要清除学习结果吗？')) {
-      clearProfile();
+      await clearProfile();
       setProfileLoadStatus('none');
     }
   }, [clearProfile]);
