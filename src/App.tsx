@@ -59,13 +59,16 @@ function App() {
   });
 
   useEffect(() => {
+    console.log('[App] Loading profile on mount...');
     const loaded = loadProfile();
     if (loaded) {
+      console.log('[App] Profile loaded successfully');
       setProfileLoadStatus('loaded');
     } else {
+      console.log('[App] No profile found');
       setProfileLoadStatus('none');
     }
-  }, []);
+  }, [loadProfile]);
 
   useEffect(() => {
     if (error) {
