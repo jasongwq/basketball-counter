@@ -8,18 +8,16 @@ import { LearningPanel } from './components/LearningPanel';
 
 function App() {
   const [isStarted, setIsStarted] = useState(false);
-  const [energyThreshold, setEnergyThreshold] = useState(80);
-  const [minFrequency, setMinFrequency] = useState(50);
-  const [maxFrequency, setMaxFrequency] = useState(300);
-  const [minHitInterval, setMinHitInterval] = useState(250);
-  const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
-  const [peakWindowSize, setPeakWindowSize] = useState(5);
-  const [energyWeight, setEnergyWeight] = useState(0.4);
-  const [timeDomainWeight, setTimeDomainWeight] = useState(0.25);
-  const [stabilityWeight, setStabilityWeight] = useState(0.15);
-  const [rangeWeight, setRangeWeight] = useState(0.2);
-  const [useAdaptiveThreshold, setUseAdaptiveThreshold] = useState(true);
   const [showPermissionModal, setShowPermissionModal] = useState(true);
+
+  const {
+    isListening,
+    hasPermission,
+    error,
+    startListening,
+    stopListening,
+    getAudioData
+  } = useAudioAnalyzer();
 
   const {
     isRecording,
@@ -36,15 +34,6 @@ function App() {
   } = useSoundLearning();
 
   const {
-    isListening,
-    hasPermission,
-    error,
-    startListening,
-    stopListening,
-    getAudioData
-  } = useAudioAnalyzer();
-
-  const {
     result,
     isDetecting,
     isCalibrating,
@@ -52,29 +41,11 @@ function App() {
     calibrationProgress,
     startDetection,
     stopDetection,
-    resetStats,
-    setThreshold,
-    setFrequencyRange,
-    setMinHitInterval: setHitInterval,
-    setConfidenceThreshold: setConfThreshold,
-    setPeakWindowSize: setPWS,
-    setWeights,
-    startCalibration
+    resetStats
   } = useHitDetection(getAudioData, isListening, {
-    energyThreshold,
-    minHitInterval,
-    minFrequency,
-    maxFrequency,
-    useAdaptiveThreshold: useAdaptiveThreshold,
-    useMultiFeature: true,
-    calibrationDuration: 2000,
-    confidenceThreshold,
-    peakWindowSize,
-    energyWeight,
-    timeDomainWeight,
-    stabilityWeight,
-    rangeWeight,
-    learnedProfile
+    learnedProfile,
+    minHitInterval: 250,
+    confidenceThreshold: 0.5
   });
 
   useEffect(() => {
@@ -82,32 +53,10 @@ function App() {
   }, [loadProfile]);
 
   useEffect(() => {
-    setThreshold(energyThreshold);
-  }, [energyThreshold, setThreshold]);
-
-  useEffect(() => {
-    setFrequencyRange(minFrequency, maxFrequency);
-  }, [minFrequency, maxFrequency, setFrequencyRange]);
-
-  useEffect(() => {
-    setHitInterval(minHitInterval);
-  }, [minHitInterval, setHitInterval]);
-
-  useEffect(() => {
-    setConfThreshold(confidenceThreshold);
-  }, [confidenceThreshold, setConfThreshold]);
-
-  useEffect(() => {
-    setPWS(peakWindowSize);
-  }, [peakWindowSize, setPWS]);
-
-  useEffect(() => {
-    setWeights({ energy: energyWeight, timeDomain: timeDomainWeight, stability: stabilityWeight, range: rangeWeight });
-  }, [energyWeight, timeDomainWeight, stabilityWeight, rangeWeight, setWeights]);
-
-  const handleUseAdaptiveThresholdChange = useCallback((value: boolean) => {
-    setUseAdaptiveThreshold(value);
-  }, []);
+    if (error) {
+      alert(`错误: ${error}`);
+    }
+  }, [error]);
 
   const handleStart = useCallback(async () => {
     await startListening();
@@ -127,63 +76,13 @@ function App() {
     resetStats();
   }, [resetStats]);
 
-  const handleRecalibrate = useCallback(() => {
-    startCalibration();
-  }, [startCalibration]);
-
-  useEffect(() => {
-    if (error) {
-      alert(`错误: ${error}`);
-    }
-  }, [error]);
-
-  const handleThresholdChange = useCallback((value: number) => {
-    setEnergyThreshold(value);
-  }, []);
-
-  const handleMinFrequencyChange = useCallback((value: number) => {
-    setMinFrequency(value);
-  }, []);
-
-  const handleMaxFrequencyChange = useCallback((value: number) => {
-    setMaxFrequency(value);
-  }, []);
-
-  const handleMinHitIntervalChange = useCallback((value: number) => {
-    setMinHitInterval(value);
-  }, []);
-
-  const handleConfidenceThresholdChange = useCallback((value: number) => {
-    setConfidenceThreshold(value);
-  }, []);
-
-  const handlePeakWindowSizeChange = useCallback((value: number) => {
-    setPeakWindowSize(value);
-  }, []);
-
-  const handleEnergyWeightChange = useCallback((value: number) => {
-    setEnergyWeight(value);
-  }, []);
-
-  const handleTimeDomainWeightChange = useCallback((value: number) => {
-    setTimeDomainWeight(value);
-  }, []);
-
-  const handleStabilityWeightChange = useCallback((value: number) => {
-    setStabilityWeight(value);
-  }, []);
-
-  const handleRangeWeightChange = useCallback((value: number) => {
-    setRangeWeight(value);
-  }, []);
-
   const handleStartLearning = useCallback((count: number) => {
     startLearning(getAudioData, count);
   }, [startLearning, getAudioData]);
 
   const handleSaveProfile = useCallback(() => {
     if (saveProfile()) {
-      alert('学习结果已保存！');
+      alert('学习结果已保存！检测将使用学习到的参数。');
     } else {
       alert('保存失败');
     }
@@ -195,6 +94,13 @@ function App() {
     }
   }, [clearProfile]);
 
+  const formatDuration = (ms: number): string => {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -203,7 +109,7 @@ function App() {
             🏀 篮球拍球计数器
           </h1>
           <p className="text-gray-400 text-sm md:text-base">
-            实时识别并统计您的篮球拍球次数
+            基于机器学习的声音识别
           </p>
         </header>
 
@@ -247,7 +153,7 @@ function App() {
                     />
                   </div>
                   <p className="text-yellow-400 text-xs mt-2 text-center">
-                    请保持安静，正在检测环境噪音...
+                    正在检测环境噪音基准...
                   </p>
                 </div>
               )}
@@ -269,15 +175,6 @@ function App() {
                   </button>
                 ) : null}
 
-                {isDetecting && (
-                  <button
-                    onClick={handleRecalibrate}
-                    className="bg-gradient-to-r from-yellow-600 to-yellow-700 text-white px-4 py-3 rounded-lg font-semibold hover:from-yellow-700 hover:to-yellow-800 transition-all shadow-lg"
-                  >
-                    🎯 重新校准
-                  </button>
-                )}
-
                 <button
                   onClick={handleReset}
                   disabled={!isStarted || result.hitCount === 0}
@@ -286,19 +183,6 @@ function App() {
                   🔄 重置
                 </button>
               </div>
-
-              {result.noiseLevel > 0 && (
-                <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-400">环境噪音</span>
-                    <span className="text-gray-300">{result.noiseLevel}</span>
-                  </div>
-                  <div className="flex justify-between text-sm mt-1">
-                    <span className="text-gray-400">自适应阈值</span>
-                    <span className="text-green-400">{result.adaptiveThreshold}</span>
-                  </div>
-                </div>
-              )}
 
               {error && (
                 <div className="mt-4 p-3 bg-red-900/30 border border-red-500/30 rounded-lg">
@@ -312,29 +196,7 @@ function App() {
             <StatsPanel
               result={result}
               isActive={isDetecting}
-              energyThreshold={energyThreshold}
-              onThresholdChange={handleThresholdChange}
-              minFrequency={minFrequency}
-              maxFrequency={maxFrequency}
-              onMinFrequencyChange={handleMinFrequencyChange}
-              onMaxFrequencyChange={handleMaxFrequencyChange}
               currentConfidence={currentConfidence}
-              minHitInterval={minHitInterval}
-              onMinHitIntervalChange={handleMinHitIntervalChange}
-              confidenceThreshold={confidenceThreshold}
-              onConfidenceThresholdChange={handleConfidenceThresholdChange}
-              peakWindowSize={peakWindowSize}
-              onPeakWindowSizeChange={handlePeakWindowSizeChange}
-              energyWeight={energyWeight}
-              timeDomainWeight={timeDomainWeight}
-              stabilityWeight={stabilityWeight}
-              rangeWeight={rangeWeight}
-              onEnergyWeightChange={handleEnergyWeightChange}
-              onTimeDomainWeightChange={handleTimeDomainWeightChange}
-              onStabilityWeightChange={handleStabilityWeightChange}
-              onRangeWeightChange={handleRangeWeightChange}
-              useAdaptiveThreshold={useAdaptiveThreshold}
-              onUseAdaptiveThresholdChange={handleUseAdaptiveThresholdChange}
             />
             <LearningPanel
               isRecording={isRecording}
@@ -354,7 +216,7 @@ function App() {
 
         <footer className="mt-12 text-center">
           <p className="text-gray-500 text-xs">
-            使用 Web Audio API 和 Canvas 实现实时音频分析 | 多特征融合 + 自适应阈值
+            录制您的篮球拍球声音，学习特征参数，提高识别准确度
           </p>
         </footer>
       </div>

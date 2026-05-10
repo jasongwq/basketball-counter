@@ -1,22 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { AudioAnalyzerData } from './useAudioAnalyzer';
-import { LearnedSoundProfile } from './useSoundLearning';
+import { LearnedSoundProfile, SoundFeatures } from './useSoundLearning';
 
 export interface HitRecord {
   id: number;
   timestamp: Date;
   absoluteTime: string;
   relativeTime: string;
-  frequency: number;
-  energy: number;
-  timeDomainEnergy: number;
-  stability: number;
   confidence: number;
-  peakFrequency: number;
-  riseTime: number;
-  spectralCentroid: number;
-  zeroCrossingRate: number;
-  isShortBurst: boolean;
+  features: Partial<SoundFeatures>;
 }
 
 export interface HitDetectionResult {
@@ -24,51 +16,386 @@ export interface HitDetectionResult {
   hitsPerMinute: number;
   duration: number;
   lastHitTime: number | null;
-  peakFrequency: number;
-  averageEnergy: number;
-  lastHitFrequency: number;
+  averageConfidence: number;
   frequencyHistory: HitRecord[];
-  noiseLevel: number;
-  adaptiveThreshold: number;
-  confidence: number;
+  learnedProfile: LearnedSoundProfile | null;
 }
 
 export interface UseHitDetectionOptions {
-  energyThreshold?: number;
-  minHitInterval?: number;
-  decayRate?: number;
-  minFrequency?: number;
-  maxFrequency?: number;
-  useAdaptiveThreshold?: boolean;
-  useMultiFeature?: boolean;
-  calibrationDuration?: number;
-  confidenceThreshold?: number;
-  peakWindowSize?: number;
-  energyWeight?: number;
-  timeDomainWeight?: number;
-  stabilityWeight?: number;
-  rangeWeight?: number;
   learnedProfile?: LearnedSoundProfile | null;
+  minHitInterval?: number;
+  confidenceThreshold?: number;
 }
 
 export interface UseHitDetectionReturn {
   result: HitDetectionResult;
   isDetecting: boolean;
   isCalibrating: boolean;
-  currentEnergy: number;
   currentConfidence: number;
   calibrationProgress: number;
   startDetection: () => void;
   stopDetection: () => void;
   resetStats: () => void;
-  setThreshold: (value: number) => void;
-  setFrequencyRange: (min: number, max: number) => void;
-  setMinHitInterval: (value: number) => void;
-  setConfidenceThreshold: (value: number) => void;
-  setPeakWindowSize: (value: number) => void;
-  setWeights: (weights: { energy?: number; timeDomain?: number; stability?: number; range?: number }) => void;
   startCalibration: () => Promise<void>;
   getAudioData: () => AudioAnalyzerData;
+}
+
+const NYQUIST = 22050;
+
+function calculateSimilarity(
+  features: SoundFeatures,
+  profile: LearnedSoundProfile,
+  noiseFloor: number
+): number {
+  const scores: number[] = [];
+  
+  const td = features.timeDomain;
+  const tdProfile = profile.timeDomain;
+  
+  scores.push(gaussianScore(td.rms, tdProfile.rms.avg, Math.max(tdProfile.rms.stdDev, 0.01)));
+  scores.push(gaussianScore(td.zeroCrossingRate, tdProfile.zcr.avg, Math.max(tdProfile.zcr.stdDev, 0.001)));
+  scores.push(gaussianScore(td.riseTime, tdProfile.riseTime.avg, Math.max(tdProfile.riseTime.stdDev, 0.05)));
+  scores.push(gaussianScore(td.crestFactor, tdProfile.crestFactor.avg, Math.max(tdProfile.crestFactor.stdDev, 0.1)));
+  scores.push(gaussianScore(td.waveformEntropy, tdProfile.waveformEntropy.avg, Math.max(tdProfile.waveformEntropy.stdDev, 0.05)));
+  scores.push(gaussianScore(td.skewness, tdProfile.skewness.avg, Math.max(tdProfile.skewness.stdDev, 0.1)));
+  scores.push(gaussianScore(td.kurtosis, tdProfile.kurtosis.avg, Math.max(tdProfile.kurtosis.stdDev, 0.1)));
+  
+  const fd = features.frequency;
+  const fdProfile = profile.frequency;
+  
+  scores.push(gaussianScore(fd.centroid, fdProfile.centroid.avg, Math.max(fdProfile.centroid.stdDev, 50)));
+  scores.push(gaussianScore(fd.rolloff, fdProfile.rolloff.avg, Math.max(fdProfile.rolloff.stdDev, 100)));
+  scores.push(gaussianScore(fd.flatness, fdProfile.flatness.avg, Math.max(fdProfile.flatness.stdDev, 0.01)));
+  scores.push(gaussianScore(fd.bandwidth, fdProfile.bandwidth.avg, Math.max(fdProfile.bandwidth.stdDev, 50)));
+  scores.push(gaussianScore(fd.bandEnergy.low, fdProfile.bandEnergy.low.avg, Math.max(fdProfile.bandEnergy.low.stdDev, 1)));
+  scores.push(gaussianScore(fd.bandEnergy.mid, fdProfile.bandEnergy.mid.avg, Math.max(fdProfile.bandEnergy.mid.stdDev, 1)));
+  scores.push(gaussianScore(fd.bandEnergy.high, fdProfile.bandEnergy.high.avg, Math.max(fdProfile.bandEnergy.high.stdDev, 1)));
+  
+  const mfccScore = calculateMfccSimilarity(features.cepstral.mfcc, profile.cepstral.mfcc);
+  scores.push(mfccScore);
+  scores.push(gaussianScore(features.cepstral.cepstralPeak, profile.cepstral.cepstralPeak.avg, Math.max(profile.cepstral.cepstralPeak.stdDev, 0.1)));
+  
+  scores.push(gaussianScore(features.derived.dominantFrequency, profile.derived.dominantFrequency.avg, Math.max(profile.derived.dominantFrequency.stdDev, 20)));
+  scores.push(gaussianScore(features.derived.energy, profile.derived.energy.avg, Math.max(profile.derived.energy.stdDev, 5)));
+  
+  const validScores = scores.filter(s => !isNaN(s) && isFinite(s));
+  if (validScores.length === 0) return 0;
+  
+  return validScores.reduce((a, b) => a + b, 0) / validScores.length;
+}
+
+function gaussianScore(value: number, mean: number, stdDev: number): number {
+  if (stdDev === 0) return value === mean ? 1 : 0;
+  const diff = Math.abs(value - mean);
+  const score = Math.exp(-(diff * diff) / (2 * stdDev * stdDev));
+  return Math.min(Math.max(score, 0), 1);
+}
+
+function calculateMfccSimilarity(mfcc1: number[], mfcc2: { avg: number[]; stdDev: number[] }): number {
+  if (mfcc1.length !== mfcc2.avg.length) return 0;
+  
+  let totalScore = 0;
+  for (let i = 0; i < mfcc1.length; i++) {
+    totalScore += gaussianScore(mfcc1[i], mfcc2.avg[i], Math.max(mfcc2.stdDev[i], 0.1));
+  }
+  
+  return totalScore / mfcc1.length;
+}
+
+function extractFeatures(
+  audioData: AudioAnalyzerData,
+  envelopeHistory: { energy: number; timestamp: number }[]
+): SoundFeatures {
+  const { frequencyData, timeDomainData } = audioData;
+  const binSize = NYQUIST / frequencyData.length;
+  
+  const rms = calculateRMS(timeDomainData);
+  const zcr = calculateZCR(timeDomainData);
+  const { skewness, kurtosis } = calculateHOS(timeDomainData);
+  const crestFactor = calculateCrestFactor(timeDomainData);
+  const waveformEntropy = calculateWaveformEntropy(timeDomainData);
+  
+  const centroid = calculateSpectralCentroid(frequencyData);
+  const rolloff = calculateSpectralRolloff(frequencyData);
+  const flatness = calculateSpectralFlatness(frequencyData);
+  const bandwidth = calculateSpectralBandwidth(frequencyData);
+  const bandEnergy = calculateBandEnergy(frequencyData, binSize);
+  
+  const mfcc = calculateMFCC(frequencyData);
+  const cepstralPeak = calculateCepstralPeak(frequencyData);
+  
+  const minIndex = Math.floor(50 / binSize);
+  const maxIndex = Math.min(Math.ceil(300 / binSize), frequencyData.length - 1);
+  
+  let maxValue = 0;
+  let dominantIndex = 0;
+  for (let i = minIndex; i <= maxIndex; i++) {
+    if (frequencyData[i] > maxValue) {
+      maxValue = frequencyData[i];
+      dominantIndex = i;
+    }
+  }
+  const dominantFrequency = (dominantIndex * NYQUIST) / frequencyData.length;
+  
+  let energySum = 0;
+  for (let i = minIndex; i <= maxIndex; i++) {
+    energySum += frequencyData[i] * frequencyData[i];
+  }
+  const energy = Math.sqrt(energySum / (maxIndex - minIndex + 1));
+  
+  let riseTime = 0;
+  if (envelopeHistory.length >= 3) {
+    const recent = envelopeHistory.slice(-5);
+    const minE = Math.min(...recent.map(e => e.energy));
+    const maxE = Math.max(...recent.map(e => e.energy));
+    if (maxE > minE) {
+      riseTime = (maxE - minE) / maxE;
+    }
+  }
+  
+  return {
+    timestamp: Date.now(),
+    timeDomain: { rms, zeroCrossingRate: zcr, riseTime, crestFactor, waveformEntropy, skewness, kurtosis },
+    frequency: { centroid, rolloff, flatness, bandwidth, bandEnergy },
+    cepstral: { mfcc, cepstralPeak },
+    derived: { dominantFrequency, snr: 0, energy }
+  };
+}
+
+function calculateRMS(data: Uint8Array): number {
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) {
+    const val = (data[i] - 128) / 128;
+    sum += val * val;
+  }
+  return Math.sqrt(sum / data.length);
+}
+
+function calculateZCR(data: Uint8Array): number {
+  let crossings = 0;
+  for (let i = 1; i < data.length; i++) {
+    const prev = data[i - 1] - 128;
+    const curr = data[i] - 128;
+    if ((prev >= 0 && curr < 0) || (prev < 0 && curr >= 0)) {
+      crossings++;
+    }
+  }
+  return crossings / data.length;
+}
+
+function calculateHOS(data: Uint8Array): { skewness: number; kurtosis: number } {
+  const values: number[] = [];
+  for (let i = 0; i < data.length; i++) {
+    values.push((data[i] - 128) / 128);
+  }
+  
+  const n = values.length;
+  const mean = values.reduce((a, b) => a + b, 0) / n;
+  const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / n;
+  const stdDev = Math.sqrt(variance);
+  
+  if (stdDev === 0) return { skewness: 0, kurtosis: 0 };
+  
+  const skewness = values.reduce((sum, v) => sum + Math.pow((v - mean) / stdDev, 3), 0) / n;
+  const kurtosis = values.reduce((sum, v) => sum + Math.pow((v - mean) / stdDev, 4), 0) / n - 3;
+  
+  return { skewness, kurtosis };
+}
+
+function calculateCrestFactor(data: Uint8Array): number {
+  let peak = 0;
+  let sumSquares = 0;
+  for (let i = 0; i < data.length; i++) {
+    const val = Math.abs((data[i] - 128) / 128);
+    if (val > peak) peak = val;
+    sumSquares += val * val;
+  }
+  const rms = Math.sqrt(sumSquares / data.length);
+  return rms > 0 ? peak / rms : 0;
+}
+
+function calculateWaveformEntropy(data: Uint8Array): number {
+  const bins = 20;
+  const histogram = new Array(bins).fill(0);
+  const range = 256 / bins;
+  
+  for (let i = 0; i < data.length; i++) {
+    const bin = Math.min(Math.floor((data[i]) / range), bins - 1);
+    histogram[bin]++;
+  }
+  
+  const total = data.length;
+  let entropy = 0;
+  for (let i = 0; i < bins; i++) {
+    if (histogram[i] > 0) {
+      const p = histogram[i] / total;
+      entropy -= p * Math.log2(p);
+    }
+  }
+  
+  return entropy / Math.log2(bins);
+}
+
+function calculateSpectralCentroid(data: Uint8Array): number {
+  let weightedSum = 0;
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) {
+    const freq = (i * NYQUIST) / data.length;
+    weightedSum += freq * data[i];
+    sum += data[i];
+  }
+  return sum > 0 ? weightedSum / sum : 0;
+}
+
+function calculateSpectralRolloff(data: Uint8Array, threshold: number = 0.85): number {
+  let totalEnergy = 0;
+  for (let i = 0; i < data.length; i++) {
+    totalEnergy += data[i] * data[i];
+  }
+  
+  const targetEnergy = totalEnergy * threshold;
+  let cumulativeEnergy = 0;
+  
+  for (let i = 0; i < data.length; i++) {
+    cumulativeEnergy += data[i] * data[i];
+    if (cumulativeEnergy >= targetEnergy) {
+      return (i * NYQUIST) / data.length;
+    }
+  }
+  
+  return NYQUIST / 2;
+}
+
+function calculateSpectralFlatness(data: Uint8Array): number {
+  let sumLog = 0;
+  let sum = 0;
+  
+  for (let i = 0; i < data.length; i++) {
+    if (data[i] > 0) {
+      sumLog += Math.log(data[i]);
+      sum += data[i];
+    }
+  }
+  
+  if (sum === 0) return 0;
+  
+  const geometricMean = Math.exp(sumLog / data.length);
+  const arithmeticMean = sum / data.length;
+  
+  return arithmeticMean > 0 ? geometricMean / arithmeticMean : 0;
+}
+
+function calculateSpectralBandwidth(data: Uint8Array): number {
+  const centroid = calculateSpectralCentroid(data);
+  
+  let weightedSum = 0;
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) {
+    const freq = (i * NYQUIST) / data.length;
+    const diff = freq - centroid;
+    weightedSum += diff * diff * data[i];
+    sum += data[i];
+  }
+  
+  return sum > 0 ? Math.sqrt(weightedSum / sum) : 0;
+}
+
+function calculateBandEnergy(data: Uint8Array, binSize: number): { low: number; mid: number; high: number } {
+  let low = 0, mid = 0, high = 0;
+  let lowCount = 0, midCount = 0, highCount = 0;
+  
+  for (let i = 0; i < data.length; i++) {
+    const freq = i * binSize;
+    if (freq < 250) {
+      low += data[i] * data[i];
+      lowCount++;
+    } else if (freq < 2000) {
+      mid += data[i] * data[i];
+      midCount++;
+    } else {
+      high += data[i] * data[i];
+      highCount++;
+    }
+  }
+  
+  return {
+    low: lowCount > 0 ? Math.sqrt(low / lowCount) : 0,
+    mid: midCount > 0 ? Math.sqrt(mid / midCount) : 0,
+    high: highCount > 0 ? Math.sqrt(high / highCount) : 0
+  };
+}
+
+function calculateMFCC(data: Uint8Array): number[] {
+  const numCoeffs = 13;
+  const melFilters = createMelFilterbank(numCoeffs, data.length);
+  const melEnergies: number[] = [];
+  
+  for (let m = 0; m < melFilters.length; m++) {
+    let sum = 0;
+    for (let k = 0; k < data.length; k++) {
+      sum += data[k] * data[k] * melFilters[m][k];
+    }
+    melEnergies.push(Math.log(sum + 1e-10));
+  }
+  
+  const mfcc: number[] = [];
+  for (let n = 0; n < numCoeffs; n++) {
+    let sum = 0;
+    for (let m = 0; m < melFilters.length; m++) {
+      sum += melEnergies[m] * Math.cos(Math.PI * n * (m + 0.5) / melFilters.length);
+    }
+    mfcc.push(sum);
+  }
+  
+  return mfcc;
+}
+
+function createMelFilterbank(numFilters: number, numBins: number): number[][] {
+  const melMin = 0;
+  const melMax = 2595 * Math.log10(1 + NYQUIST / 2 / 700);
+  
+  const melPoints: number[] = [];
+  for (let i = 0; i <= numFilters + 1; i++) {
+    melPoints.push(melMin + (melMax - melMin) * i / numFilters);
+  }
+  
+  const hzPoints = melPoints.map(m => 700 * (Math.pow(10, m / 2595) - 1));
+  const binPoints = hzPoints.map(h => Math.floor((h * 2 * numBins) / NYQUIST));
+  
+  const filters: number[][] = [];
+  for (let m = 1; m <= numFilters; m++) {
+    const filter: number[] = [];
+    for (let k = 0; k < numBins; k++) {
+      let value = 0;
+      if (k >= binPoints[m - 1] && k < binPoints[m]) {
+        value = (k - binPoints[m - 1]) / (binPoints[m] - binPoints[m - 1]);
+      } else if (k >= binPoints[m] && k < binPoints[m + 1]) {
+        value = (binPoints[m + 1] - k) / (binPoints[m + 1] - binPoints[m]);
+      }
+      filter.push(value);
+    }
+    filters.push(filter);
+  }
+  
+  return filters;
+}
+
+function calculateCepstralPeak(data: Uint8Array): number {
+  const logSpectrum: number[] = [];
+  for (let i = 1; i < data.length; i++) {
+    logSpectrum.push(Math.log(data[i] + 1));
+  }
+  
+  let maxPeak = 0;
+  for (let i = 1; i < logSpectrum.length - 1; i++) {
+    if (logSpectrum[i] > logSpectrum[i - 1] && logSpectrum[i] > logSpectrum[i + 1]) {
+      if (logSpectrum[i] > maxPeak) {
+        maxPeak = logSpectrum[i];
+      }
+    }
+  }
+  
+  return maxPeak;
 }
 
 export function useHitDetection(
@@ -77,21 +404,9 @@ export function useHitDetection(
   options: UseHitDetectionOptions = {}
 ): UseHitDetectionReturn {
   const {
-    energyThreshold = 80,
+    learnedProfile = null,
     minHitInterval = 250,
-    decayRate = 0.95,
-    minFrequency = 50,
-    maxFrequency = 300,
-    useAdaptiveThreshold = true,
-    useMultiFeature = true,
-    calibrationDuration = 2000,
-    confidenceThreshold = 0.5,
-    peakWindowSize = 5,
-    energyWeight = 0.4,
-    timeDomainWeight = 0.25,
-    stabilityWeight = 0.15,
-    rangeWeight = 0.2,
-    learnedProfile = null
+    confidenceThreshold = 0.6
   } = options;
 
   const [result, setResult] = useState<HitDetectionResult>({
@@ -99,16 +414,11 @@ export function useHitDetection(
     hitsPerMinute: 0,
     duration: 0,
     lastHitTime: null,
-    peakFrequency: 0,
-    averageEnergy: 0,
-    lastHitFrequency: 0,
+    averageConfidence: 0,
     frequencyHistory: [],
-    noiseLevel: 0,
-    adaptiveThreshold: energyThreshold,
-    confidence: 0
+    learnedProfile: null
   });
 
-  const [currentEnergy, setCurrentEnergy] = useState(0);
   const [currentConfidence, setCurrentConfidence] = useState(0);
   const [isDetecting, setIsDetecting] = useState(false);
   const [isCalibrating, setIsCalibrating] = useState(false);
@@ -119,59 +429,17 @@ export function useHitDetection(
   const lastHitTimeRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const hitCountRef = useRef(0);
-  const energyHistoryRef = useRef<number[]>([]);
-  const thresholdRef = useRef(energyThreshold);
-  const peakFrequencyRef = useRef(0);
-  const lastHitFrequencyRef = useRef(0);
-  const frequencyHistoryRef = useRef<HitRecord[]>([]);
   const hitIdCounterRef = useRef(0);
-  const minFrequencyRef = useRef(minFrequency);
-  const maxFrequencyRef = useRef(maxFrequency);
-  const minHitIntervalRef = useRef(minHitInterval);
-  const noiseLevelRef = useRef(0);
-  const adaptiveThresholdRef = useRef(energyThreshold);
-  const useAdaptiveThresholdRef = useRef(useAdaptiveThreshold);
-  const useMultiFeatureRef = useRef(useMultiFeature);
-  const noiseSamplesRef = useRef<number[]>([]);
-  const peakHistoryRef = useRef<number[]>([]);
-  const confidenceThresholdRef = useRef(confidenceThreshold);
-  const peakWindowSizeRef = useRef(peakWindowSize);
-  const energyWeightRef = useRef(energyWeight);
-  const timeDomainWeightRef = useRef(timeDomainWeight);
-  const stabilityWeightRef = useRef(stabilityWeight);
-  const rangeWeightRef = useRef(rangeWeight);
-  const recentHitsRef = useRef<{ time: number; energy: number; confidence: number }[]>([]);
+  const confidenceHistoryRef = useRef<number[]>([]);
+  const frequencyHistoryRef = useRef<HitRecord[]>([]);
   const envelopeHistoryRef = useRef<{ energy: number; timestamp: number }[]>([]);
-  const zeroCrossingHistoryRef = useRef<number[]>([]);
+  const lastEnergyRef = useRef(0);
+  const isRisingRef = useRef(false);
+  const peakEnergyRef = useRef(0);
   const learnedProfileRef = useRef<LearnedSoundProfile | null>(learnedProfile);
-
-  const setThreshold = useCallback((value: number) => {
-    thresholdRef.current = value;
-  }, []);
-
-  const setFrequencyRange = useCallback((min: number, max: number) => {
-    minFrequencyRef.current = min;
-    maxFrequencyRef.current = max;
-  }, []);
-
-  const setMinHitInterval = useCallback((value: number) => {
-    minHitIntervalRef.current = value;
-  }, []);
-
-  const setConfidenceThreshold = useCallback((value: number) => {
-    confidenceThresholdRef.current = value;
-  }, []);
-
-  const setPeakWindowSize = useCallback((value: number) => {
-    peakWindowSizeRef.current = value;
-  }, []);
-
-  const setWeights = useCallback((weights: { energy?: number; timeDomain?: number; stability?: number; range?: number }) => {
-    if (weights.energy !== undefined) energyWeightRef.current = weights.energy;
-    if (weights.timeDomain !== undefined) timeDomainWeightRef.current = weights.timeDomain;
-    if (weights.stability !== undefined) stabilityWeightRef.current = weights.stability;
-    if (weights.range !== undefined) rangeWeightRef.current = weights.range;
-  }, []);
+  const confidenceThresholdRef = useRef(confidenceThreshold);
+  const minHitIntervalRef = useRef(minHitInterval);
+  const noiseSamplesRef = useRef<number[]>([]);
 
   const resetStats = useCallback(() => {
     setResult({
@@ -179,250 +447,18 @@ export function useHitDetection(
       hitsPerMinute: 0,
       duration: 0,
       lastHitTime: null,
-      peakFrequency: 0,
-      averageEnergy: 0,
-      lastHitFrequency: 0,
+      averageConfidence: 0,
       frequencyHistory: [],
-      noiseLevel: 0,
-      adaptiveThreshold: adaptiveThresholdRef.current,
-      confidence: 0
+      learnedProfile: learnedProfileRef.current
     });
     hitCountRef.current = 0;
     lastHitTimeRef.current = null;
     startTimeRef.current = null;
-    energyHistoryRef.current = [];
-    peakFrequencyRef.current = 0;
-    lastHitFrequencyRef.current = 0;
+    confidenceHistoryRef.current = [];
     frequencyHistoryRef.current = [];
     hitIdCounterRef.current = 0;
-    peakHistoryRef.current = [];
-    recentHitsRef.current = [];
+    envelopeHistoryRef.current = [];
   }, []);
-
-  function calculateEnergyInRange(frequencyData: Uint8Array, minFreq: number, maxFreq: number): number {
-    const nyquist = 22050;
-    const binSize = nyquist / frequencyData.length;
-    const minIndex = Math.floor(minFreq / binSize);
-    const maxIndex = Math.min(Math.ceil(maxFreq / binSize), frequencyData.length - 1);
-    
-    let sum = 0;
-    let count = 0;
-    for (let i = minIndex; i <= maxIndex; i++) {
-      sum += frequencyData[i] * frequencyData[i];
-      count++;
-    }
-    
-    return count > 0 ? Math.sqrt(sum / count) : 0;
-  }
-
-  function calculateDominantFrequency(frequencyData: Uint8Array, minFreq: number, maxFreq: number): number {
-    const nyquist = 22050;
-    const binSize = nyquist / frequencyData.length;
-    const minIndex = Math.floor(minFreq / binSize);
-    const maxIndex = Math.min(Math.ceil(maxFreq / binSize), frequencyData.length - 1);
-    
-    let maxValue = 0;
-    let dominantIndex = 0;
-    
-    for (let i = minIndex; i <= maxIndex; i++) {
-      if (frequencyData[i] > maxValue) {
-        maxValue = frequencyData[i];
-        dominantIndex = i;
-      }
-    }
-    
-    const frequency = (dominantIndex * nyquist) / frequencyData.length;
-    return Math.round(frequency);
-  }
-
-  function calculateTimeDomainEnergy(timeDomainData: Uint8Array): number {
-    let sum = 0;
-    for (let i = 0; i < timeDomainData.length; i++) {
-      const val = (timeDomainData[i] - 128) / 128;
-      sum += val * val;
-    }
-    return Math.sqrt(sum / timeDomainData.length);
-  }
-
-  function calculateSignalStability(timeDomainData: Uint8Array): number {
-    const firstHalf = Array.from(timeDomainData.slice(0, timeDomainData.length / 2));
-    const secondHalf = Array.from(timeDomainData.slice(timeDomainData.length / 2));
-    
-    const mean1 = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
-    const mean2 = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
-    
-    const diff = Math.abs(mean1 - mean2) / 128;
-    return Math.min(diff * 5, 1);
-  }
-
-  function calculateZeroCrossingRate(timeDomainData: Uint8Array): number {
-    let crossings = 0;
-    for (let i = 1; i < timeDomainData.length; i++) {
-      const prev = timeDomainData[i - 1] - 128;
-      const curr = timeDomainData[i] - 128;
-      if ((prev >= 0 && curr < 0) || (prev < 0 && curr >= 0)) {
-        crossings++;
-      }
-    }
-    return crossings / timeDomainData.length;
-  }
-
-  function calculateSpectralCentroid(frequencyData: Uint8Array): number {
-    let weightedSum = 0;
-    let sum = 0;
-    const nyquist = 22050;
-    for (let i = 0; i < frequencyData.length; i++) {
-      const frequency = (i * nyquist) / frequencyData.length;
-      const magnitude = frequencyData[i];
-      weightedSum += frequency * magnitude;
-      sum += magnitude;
-    }
-    return sum > 0 ? weightedSum / sum : 0;
-  }
-
-  function calculateRiseTime(envelopeHistory: { energy: number; timestamp: number }[]): number {
-    if (envelopeHistory.length < 3) return 0;
-    const recent = envelopeHistory.slice(-5);
-    const minEnergy = Math.min(...recent.map(e => e.energy));
-    const maxEnergy = Math.max(...recent.map(e => e.energy));
-    if (maxEnergy <= minEnergy) return 0;
-    const rise = maxEnergy - minEnergy;
-    const risePercent = rise / maxEnergy;
-    return risePercent;
-  }
-
-  function analyzeSoundType(
-    zeroCrossingRate: number,
-    spectralCentroid: number,
-    riseTime: number,
-    timeDomainEnergy: number
-  ): { isShortBurst: boolean; score: number } {
-    const zcrNorm = Math.min(zeroCrossingRate * 50, 1);
-    const centroidNorm = Math.min(spectralCentroid / 500, 1);
-    const riseNorm = Math.min(riseTime * 2, 1);
-    const energyNorm = Math.min(timeDomainEnergy * 10, 1);
-    
-    const burstScore = (1 - zcrNorm) * 0.3 + riseNorm * 0.3 + (1 - centroidNorm) * 0.2 + energyNorm * 0.2;
-    
-    const isShortBurst = burstScore > 0.5 && zcrNorm < 0.5 && riseNorm > 0.3;
-    
-    return {
-      isShortBurst,
-      score: burstScore
-    };
-  }
-
-  function formatAbsoluteTime(timestamp: number): string {
-    const date = new Date(timestamp);
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    const seconds = date.getSeconds().toString().padStart(2, '0');
-    const ms = date.getMilliseconds().toString().padStart(3, '0');
-    return `${hours}:${minutes}:${seconds}.${ms}`;
-  }
-
-  function calculateLearnedConfidence(
-    dominantFrequency: number,
-    energy: number,
-    spectralCentroid: number,
-    zeroCrossingRate: number,
-    riseTime: number,
-    timeDomainEnergy: number
-  ): number {
-    const profile = learnedProfileRef.current;
-    if (!profile) return 0;
-
-    const w = profile.confidenceWeight;
-    
-    const freqInRange = dominantFrequency >= profile.frequencyRange.min && 
-                        dominantFrequency <= profile.frequencyRange.max;
-    const freqScore = freqInRange ? 1 : Math.max(0, 1 - Math.abs(dominantFrequency - profile.frequencyRange.avg) / 100);
-    
-    const energyDist = Math.abs(energy - profile.energyRange.avg);
-    const energyScore = Math.max(0, 1 - energyDist / (profile.energyRange.stdDev * 3 + 10));
-    
-    const centroidDist = Math.abs(spectralCentroid - profile.spectralCentroidRange.avg);
-    const centroidScore = Math.max(0, 1 - centroidDist / 200);
-    
-    const zcrDist = Math.abs(zeroCrossingRate - profile.zeroCrossingRateRange.avg);
-    const zcrScore = Math.max(0, 1 - zcrDist / 0.05);
-    
-    const riseDist = Math.abs(riseTime - profile.riseTimeRange.avg);
-    const riseScore = Math.max(0, 1 - riseDist / 0.3);
-    
-    const timeDomainDist = Math.abs(timeDomainEnergy - profile.timeDomainEnergyRange.avg);
-    const timeDomainScore = Math.max(0, 1 - timeDomainDist / 0.2);
-
-    const confidence = (
-      energyScore * w.energy +
-      freqScore * w.frequency +
-      centroidScore * w.spectralCentroid +
-      zcrScore * w.zeroCrossingRate +
-      riseScore * w.riseTime +
-      timeDomainScore * w.timeDomain
-    );
-
-    return Math.min(Math.max(confidence, 0), 1);
-  }
-
-  function formatRelativeTime(timestamp: number): string {
-    const start = startTimeRef.current || timestamp;
-    const elapsed = timestamp - start;
-    const totalSeconds = Math.floor(elapsed / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    const ms = Math.floor((elapsed % 1000) / 10);
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
-  }
-
-  function calculateConfidence(
-    energy: number,
-    timeDomainEnergy: number,
-    stability: number,
-    inRange: boolean,
-    zeroCrossingRate?: number,
-    spectralCentroid?: number,
-    riseTime?: number,
-    burstScore?: number
-  ): number {
-    if (!useMultiFeatureRef.current) {
-      return inRange ? 1 : 0;
-    }
-
-    const energyScore = Math.min(energy / 150, 1);
-    const timeDomainScore = Math.min(timeDomainEnergy * 8, 1);
-    const stabilityScore = stability;
-    const rangeScore = inRange ? 1 : 0;
-    
-    let burstBonus = 0;
-    if (burstScore !== undefined) {
-      burstBonus = burstScore * 0.2;
-    }
-    
-    let lowZcrBonus = 0;
-    if (zeroCrossingRate !== undefined) {
-      const zcrNorm = Math.min(zeroCrossingRate * 50, 1);
-      lowZcrBonus = (1 - zcrNorm) * 0.1;
-    }
-    
-    let lowCentroidBonus = 0;
-    if (spectralCentroid !== undefined) {
-      const centroidNorm = Math.min(spectralCentroid / 500, 1);
-      lowCentroidBonus = (1 - centroidNorm) * 0.1;
-    }
-
-    const baseConfidence = (
-      energyScore * 0.35 +
-      timeDomainScore * 0.2 +
-      stabilityScore * 0.1 +
-      rangeScore * 0.15
-    );
-    
-    const bonusConfidence = burstBonus + lowZcrBonus + lowCentroidBonus;
-    const confidence = baseConfidence + bonusConfidence;
-
-    return Math.min(Math.max(confidence, 0), 1);
-  }
 
   const calibrate = useCallback(async () => {
     if (!isListening) return;
@@ -432,15 +468,21 @@ export function useHitDetection(
     noiseSamplesRef.current = [];
     
     const startTime = Date.now();
+    const calibrationDuration = 1500;
     
     const collectSample = () => {
       const audioData = getAudioData();
-      const rangeEnergy = calculateEnergyInRange(
-        audioData.frequencyData,
-        minFrequencyRef.current,
-        maxFrequencyRef.current
-      );
-      noiseSamplesRef.current.push(rangeEnergy);
+      const { frequencyData } = audioData;
+      const binSize = NYQUIST / frequencyData.length;
+      const minIndex = Math.floor(50 / binSize);
+      const maxIndex = Math.min(Math.ceil(300 / binSize), frequencyData.length - 1);
+      
+      let sum = 0;
+      for (let i = minIndex; i <= maxIndex; i++) {
+        sum += frequencyData[i] * frequencyData[i];
+      }
+      const energy = Math.sqrt(sum / (maxIndex - minIndex + 1));
+      noiseSamplesRef.current.push(energy);
       
       const elapsed = Date.now() - startTime;
       const progress = Math.min(elapsed / calibrationDuration, 1);
@@ -449,210 +491,119 @@ export function useHitDetection(
       if (elapsed < calibrationDuration) {
         calibrationFrameRef.current = requestAnimationFrame(collectSample);
       } else {
-        const samples = noiseSamplesRef.current;
-        const avgNoise = samples.reduce((a, b) => a + b, 0) / samples.length;
-        const stdDev = Math.sqrt(
-          samples.reduce((sum, val) => sum + Math.pow(val - avgNoise, 2), 0) / samples.length
-        );
-        noiseLevelRef.current = avgNoise;
-        const newThreshold = avgNoise + stdDev * 3 + 15;
-        adaptiveThresholdRef.current = Math.max(newThreshold, 30);
-        thresholdRef.current = adaptiveThresholdRef.current;
-        
-        setResult(prev => ({
-          ...prev,
-          noiseLevel: Math.round(avgNoise),
-          adaptiveThreshold: Math.round(adaptiveThresholdRef.current)
-        }));
-        
         setIsCalibrating(false);
         setCalibrationProgress(1);
       }
     };
     
     calibrationFrameRef.current = requestAnimationFrame(collectSample);
-  }, [isListening, getAudioData, calibrationDuration]);
+  }, [isListening, getAudioData]);
 
   const detectHits = useCallback(() => {
     if (!isListening) return;
 
     const audioData = getAudioData();
-    const { frequencyData, timeDomainData } = audioData;
-
-    const rangeEnergy = calculateEnergyInRange(
-      frequencyData,
-      minFrequencyRef.current,
-      maxFrequencyRef.current
-    );
-    const timeDomainEnergy = calculateTimeDomainEnergy(timeDomainData);
-    const stability = calculateSignalStability(timeDomainData);
-    const dominantFrequency = calculateDominantFrequency(
-      frequencyData,
-      minFrequencyRef.current,
-      maxFrequencyRef.current
-    );
-    const zeroCrossingRate = calculateZeroCrossingRate(timeDomainData);
-    const spectralCentroid = calculateSpectralCentroid(frequencyData);
+    const { frequencyData } = audioData;
+    const binSize = NYQUIST / frequencyData.length;
+    const minIndex = Math.floor(50 / binSize);
+    const maxIndex = Math.min(Math.ceil(300 / binSize), frequencyData.length - 1);
     
-    envelopeHistoryRef.current.push({ energy: rangeEnergy, timestamp: Date.now() });
-    if (envelopeHistoryRef.current.length > 10) {
+    let sum = 0;
+    for (let i = minIndex; i <= maxIndex; i++) {
+      sum += frequencyData[i] * frequencyData[i];
+    }
+    const energy = Math.sqrt(sum / (maxIndex - minIndex + 1));
+    
+    envelopeHistoryRef.current.push({ energy, timestamp: Date.now() });
+    if (envelopeHistoryRef.current.length > 20) {
       envelopeHistoryRef.current.shift();
     }
-    const riseTime = calculateRiseTime(envelopeHistoryRef.current);
     
-    zeroCrossingHistoryRef.current.push(zeroCrossingRate);
-    if (zeroCrossingHistoryRef.current.length > 5) {
-      zeroCrossingHistoryRef.current.shift();
-    }
-    
-    const { isShortBurst, score: burstScore } = analyzeSoundType(
-      zeroCrossingRate,
-      spectralCentroid,
-      riseTime,
-      timeDomainEnergy
-    );
-    
-    const isInFrequencyRange = dominantFrequency >= minFrequencyRef.current && 
-                                dominantFrequency <= maxFrequencyRef.current;
-    
-    const confidence = calculateConfidence(
-      rangeEnergy,
-      timeDomainEnergy,
-      stability,
-      isInFrequencyRange,
-      zeroCrossingRate,
-      spectralCentroid,
-      riseTime,
-      burstScore
-    );
-    
-    setCurrentEnergy(rangeEnergy);
-    setCurrentConfidence(confidence);
-
     const currentTime = Date.now();
+    const noiseAvg = noiseSamplesRef.current.length > 0
+      ? noiseSamplesRef.current.reduce((a, b) => a + b, 0) / noiseSamplesRef.current.length
+      : 10;
+    const snr = noiseAvg > 0 ? energy / noiseAvg : 0;
     
-    if (dominantFrequency > peakFrequencyRef.current) {
-      peakFrequencyRef.current = dominantFrequency;
-    }
-
-    energyHistoryRef.current.push(rangeEnergy);
-    if (energyHistoryRef.current.length > 100) {
-      energyHistoryRef.current.shift();
-    }
-
-    const averageEnergy = energyHistoryRef.current.reduce((a, b) => a + b, 0) / 
-                         (energyHistoryRef.current.length || 1);
-
-    if (startTimeRef.current === null) {
-      startTimeRef.current = currentTime;
-    }
-
-    const duration = currentTime - startTimeRef.current;
-    const minutes = duration / 60000;
-
-    const effectiveThreshold = useAdaptiveThresholdRef.current 
-      ? adaptiveThresholdRef.current 
-      : thresholdRef.current;
+    const threshold = noiseAvg * 2 + 20;
+    const minInterval = minHitIntervalRef.current;
     
-    const isAboveThreshold = rangeEnergy > effectiveThreshold;
-    const canDetectHit = lastHitTimeRef.current === null || 
-                          (currentTime - lastHitTimeRef.current) > minHitIntervalRef.current;
+    let confidence = 0;
     
-    peakHistoryRef.current.push(rangeEnergy);
-    if (peakHistoryRef.current.length > 5) {
-      peakHistoryRef.current.shift();
-    }
-    const recentPeak = Math.max(...peakHistoryRef.current);
-    const isPeak = rangeEnergy >= recentPeak && rangeEnergy > effectiveThreshold;
-
-    const adjustedConfidenceThreshold = confidenceThresholdRef.current;
-
-    let finalConfidence = confidence;
-    if (learnedProfileRef.current) {
-      const learnedConf = calculateLearnedConfidence(
-        dominantFrequency,
-        rangeEnergy,
-        spectralCentroid,
-        zeroCrossingRate,
-        riseTime,
-        timeDomainEnergy
-      );
-      finalConfidence = confidence * 0.4 + learnedConf * 0.6;
-    }
-
-    if (useMultiFeatureRef.current && finalConfidence > adjustedConfidenceThreshold && isPeak && canDetectHit) {
-      recentHitsRef.current.push({ time: currentTime, energy: rangeEnergy, confidence: finalConfidence });
-      if (recentHitsRef.current.length > 20) {
-        recentHitsRef.current.shift();
+    if (energy > threshold && learnedProfileRef.current) {
+      if (!isRisingRef.current && energy > lastEnergyRef.current + 5) {
+        isRisingRef.current = true;
+        peakEnergyRef.current = 0;
       }
       
-      hitCountRef.current += 1;
-      lastHitTimeRef.current = currentTime;
-      lastHitFrequencyRef.current = dominantFrequency;
-      
-      hitIdCounterRef.current += 1;
-      frequencyHistoryRef.current.push({
-        id: hitIdCounterRef.current,
-        timestamp: new Date(currentTime),
-        absoluteTime: formatAbsoluteTime(currentTime),
-        relativeTime: formatRelativeTime(currentTime),
-        frequency: dominantFrequency,
-        energy: Math.round(rangeEnergy * 10) / 10,
-        timeDomainEnergy: Math.round(timeDomainEnergy * 1000) / 1000,
-        stability: Math.round(stability * 100) / 100,
-        confidence: Math.round(finalConfidence * 100) / 100,
-        peakFrequency: peakFrequencyRef.current,
-        riseTime: Math.round(riseTime * 100) / 100,
-        spectralCentroid: Math.round(spectralCentroid),
-        zeroCrossingRate: Math.round(zeroCrossingRate * 1000) / 1000,
-        isShortBurst
-      });
-      if (frequencyHistoryRef.current.length > 50) {
-        frequencyHistoryRef.current.shift();
-      }
-    } else if (!useMultiFeatureRef.current && isAboveThreshold && isPeak && canDetectHit) {
-      if (isInFrequencyRange) {
-        hitCountRef.current += 1;
-        lastHitTimeRef.current = currentTime;
-        lastHitFrequencyRef.current = dominantFrequency;
+      if (isRisingRef.current) {
+        if (energy > peakEnergyRef.current) {
+          peakEnergyRef.current = energy;
+        }
         
-        hitIdCounterRef.current += 1;
-        frequencyHistoryRef.current.push({
-          id: hitIdCounterRef.current,
-          timestamp: new Date(currentTime),
-          absoluteTime: formatAbsoluteTime(currentTime),
-          relativeTime: formatRelativeTime(currentTime),
-          frequency: dominantFrequency,
-          energy: Math.round(rangeEnergy * 10) / 10,
-          timeDomainEnergy: Math.round(timeDomainEnergy * 1000) / 1000,
-          stability: Math.round(stability * 100) / 100,
-          confidence: Math.round(confidence * 100) / 100,
-          peakFrequency: peakFrequencyRef.current,
-          riseTime: Math.round(riseTime * 100) / 100,
-          spectralCentroid: Math.round(spectralCentroid),
-          zeroCrossingRate: Math.round(zeroCrossingRate * 1000) / 1000,
-          isShortBurst
-        });
-        if (frequencyHistoryRef.current.length > 50) {
-          frequencyHistoryRef.current.shift();
+        if (energy < peakEnergyRef.current * 0.7 && peakEnergyRef.current > threshold) {
+          const canDetect = lastHitTimeRef.current === null || 
+                           (currentTime - lastHitTimeRef.current) > minInterval;
+          
+          if (canDetect) {
+            const features = extractFeatures(audioData, envelopeHistoryRef.current);
+            features.derived.snr = snr;
+            
+            confidence = calculateSimilarity(features, learnedProfileRef.current, noiseAvg);
+            setCurrentConfidence(confidence);
+            
+            if (confidence > confidenceThresholdRef.current) {
+              hitCountRef.current += 1;
+              lastHitTimeRef.current = currentTime;
+              
+              hitIdCounterRef.current += 1;
+              frequencyHistoryRef.current.push({
+                id: hitIdCounterRef.current,
+                timestamp: new Date(currentTime),
+                absoluteTime: formatAbsoluteTime(currentTime),
+                relativeTime: formatRelativeTime(currentTime, startTimeRef.current),
+                confidence: Math.round(confidence * 100) / 100,
+                features
+              });
+              
+              if (frequencyHistoryRef.current.length > 50) {
+                frequencyHistoryRef.current.shift();
+              }
+              
+              confidenceHistoryRef.current.push(confidence);
+              if (confidenceHistoryRef.current.length > 50) {
+                confidenceHistoryRef.current.shift();
+              }
+            }
+          }
         }
       }
     }
-
+    
+    if (energy < threshold * 0.5) {
+      isRisingRef.current = false;
+    }
+    lastEnergyRef.current = energy;
+    
+    if (startTimeRef.current === null) {
+      startTimeRef.current = currentTime;
+    }
+    
+    const duration = currentTime - startTimeRef.current;
+    const minutes = duration / 60000;
     const hitsPerMinute = minutes > 0 ? hitCountRef.current / minutes : 0;
+    const avgConfidence = confidenceHistoryRef.current.length > 0
+      ? confidenceHistoryRef.current.reduce((a, b) => a + b, 0) / confidenceHistoryRef.current.length
+      : 0;
 
     setResult({
       hitCount: hitCountRef.current,
       hitsPerMinute: Math.round(hitsPerMinute * 10) / 10,
       duration,
       lastHitTime: lastHitTimeRef.current,
-      peakFrequency: peakFrequencyRef.current,
-      averageEnergy: Math.round(averageEnergy * 10) / 10,
-      lastHitFrequency: lastHitFrequencyRef.current,
+      averageConfidence: Math.round(avgConfidence * 100) / 100,
       frequencyHistory: [...frequencyHistoryRef.current],
-      noiseLevel: Math.round(noiseLevelRef.current),
-      adaptiveThreshold: Math.round(adaptiveThresholdRef.current),
-      confidence: Math.round(confidence * 100) / 100
+      learnedProfile: learnedProfileRef.current
     });
 
     animationFrameRef.current = requestAnimationFrame(detectHits);
@@ -661,27 +612,18 @@ export function useHitDetection(
   const startDetection = useCallback(async () => {
     if (!isListening) return;
     
-    thresholdRef.current = thresholdRef.current || energyThreshold;
-    confidenceThresholdRef.current = confidenceThresholdRef.current || confidenceThreshold;
-    peakWindowSizeRef.current = peakWindowSizeRef.current || peakWindowSize;
-    energyWeightRef.current = energyWeightRef.current || energyWeight;
-    timeDomainWeightRef.current = timeDomainWeightRef.current || timeDomainWeight;
-    stabilityWeightRef.current = stabilityWeightRef.current || stabilityWeight;
-    rangeWeightRef.current = rangeWeightRef.current || rangeWeight;
-    
-    if (useAdaptiveThresholdRef.current && noiseLevelRef.current === 0) {
-      await calibrate();
-    }
+    learnedProfileRef.current = learnedProfile;
+    minHitIntervalRef.current = minHitInterval;
+    confidenceThresholdRef.current = confidenceThreshold;
     
     resetStats();
     setIsDetecting(true);
     startTimeRef.current = Date.now();
-    minHitIntervalRef.current = minHitInterval;
-    useAdaptiveThresholdRef.current = useAdaptiveThreshold;
-    useMultiFeatureRef.current = useMultiFeature;
-    peakHistoryRef.current = [];
+    
+    await calibrate();
+    
     animationFrameRef.current = requestAnimationFrame(detectHits);
-  }, [isListening, resetStats, detectHits, calibrate, minHitInterval, useAdaptiveThreshold, useMultiFeature, energyThreshold, confidenceThreshold, peakWindowSize, energyWeight, timeDomainWeight, stabilityWeight, rangeWeight]);
+  }, [isListening, resetStats, detectHits, calibrate, learnedProfile, minHitInterval, confidenceThreshold]);
 
   const stopDetection = useCallback(() => {
     setIsDetecting(false);
@@ -717,19 +659,31 @@ export function useHitDetection(
     result,
     isDetecting,
     isCalibrating,
-    currentEnergy,
     currentConfidence,
     calibrationProgress,
     startDetection,
     stopDetection,
     resetStats,
-    setThreshold,
-    setFrequencyRange,
-    setMinHitInterval,
-    setConfidenceThreshold,
-    setPeakWindowSize,
-    setWeights,
     startCalibration: calibrate,
     getAudioData
   };
+}
+
+function formatAbsoluteTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  const seconds = date.getSeconds().toString().padStart(2, '0');
+  const ms = date.getMilliseconds().toString().padStart(3, '0');
+  return `${hours}:${minutes}:${seconds}.${ms}`;
+}
+
+function formatRelativeTime(timestamp: number, startTime: number | null): string {
+  const start = startTime || timestamp;
+  const elapsed = timestamp - start;
+  const totalSeconds = Math.floor(elapsed / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const ms = Math.floor((elapsed % 1000) / 10);
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
 }
