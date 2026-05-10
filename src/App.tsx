@@ -108,22 +108,6 @@ function App() {
   }, [currentConfidence]);
 
   const handleStart = useCallback(async () => {
-    // 检查是否已有权限
-    if (!hasPermission) {
-      setShowPermissionModal(true);
-      return;
-    }
-    // 已有权限，直接开始
-    await startListening();
-    setShowPermissionModal(false);
-    setIsStarted(true);
-    confidenceHistoryRef.current = [];
-    setConfidenceHistory([]);
-    startDetection();
-  }, [hasPermission, startListening, startDetection]);
-
-  const handleGrantPermission = useCallback(async () => {
-    // 用户点击授权按钮，请求麦克风权限并直接开始检测
     try {
       await startListening();
       setShowPermissionModal(false);
@@ -131,9 +115,9 @@ function App() {
       confidenceHistoryRef.current = [];
       setConfidenceHistory([]);
       startDetection();
-      console.log('[App] Permission granted and detection started');
+      console.log('[App] Detection started');
     } catch (e) {
-      console.error('[App] Failed to start after permission grant:', e);
+      console.error('[App] Failed to start:', e);
     }
   }, [startListening, startDetection]);
 
@@ -436,7 +420,7 @@ function App() {
             </div>
 
             <button
-              onClick={handleGrantPermission}
+              onClick={handleStart}
               className="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-white px-6 py-4 rounded-xl font-semibold hover:from-orange-600 hover:to-orange-700 transition-all transform hover:scale-105 shadow-lg"
             >
               授权并开始
