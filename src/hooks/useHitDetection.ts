@@ -341,14 +341,14 @@ export function useHitDetection(
       return inRange ? 1 : 0;
     }
 
-    const energyScore = Math.min(energy / 200, 1);
-    const timeDomainScore = Math.min(timeDomainEnergy * 10, 1);
+    const energyScore = Math.min(energy / 150, 1);
+    const timeDomainScore = Math.min(timeDomainEnergy * 8, 1);
     const stabilityScore = stability;
     const rangeScore = inRange ? 1 : 0;
     
     let burstBonus = 0;
     if (burstScore !== undefined) {
-      burstBonus = burstScore * 0.15;
+      burstBonus = burstScore * 0.2;
     }
     
     let lowZcrBonus = 0;
@@ -364,14 +364,14 @@ export function useHitDetection(
     }
 
     const baseConfidence = (
-      energyScore * 0.3 +
+      energyScore * 0.35 +
       timeDomainScore * 0.2 +
       stabilityScore * 0.1 +
       rangeScore * 0.15
     );
     
     const bonusConfidence = burstBonus + lowZcrBonus + lowCentroidBonus;
-    const confidence = Math.min(baseConfidence + bonusConfidence, 1);
+    const confidence = baseConfidence + bonusConfidence;
 
     return Math.min(Math.max(confidence, 0), 1);
   }
@@ -517,9 +517,9 @@ export function useHitDetection(
     const recentPeak = Math.max(...peakHistoryRef.current);
     const isPeak = rangeEnergy >= recentPeak && rangeEnergy > effectiveThreshold;
 
-    const adjustedConfidenceThreshold = confidenceThresholdRef.current * (isShortBurst ? 0.7 : 1.3);
+    const adjustedConfidenceThreshold = confidenceThresholdRef.current;
 
-    if (useMultiFeatureRef.current && confidence > adjustedConfidenceThreshold && isPeak && canDetectHit && isShortBurst) {
+    if (useMultiFeatureRef.current && confidence > adjustedConfidenceThreshold && isPeak && canDetectHit) {
       recentHitsRef.current.push({ time: currentTime, energy: rangeEnergy, confidence });
       if (recentHitsRef.current.length > 20) {
         recentHitsRef.current.shift();
