@@ -17,6 +17,7 @@ interface CheckStep {
 
 export const DetectionDebugPanel: React.FC<DetectionDebugPanelProps> = ({ debugInfo, isActive }) => {
   const [steps, setSteps] = useState<CheckStep[]>([]);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (!isActive || !debugInfo) return;
@@ -63,13 +64,6 @@ export const DetectionDebugPanel: React.FC<DetectionDebugPanelProps> = ({ debugI
         value: debugInfo.timeSinceLastHit !== undefined ? `${debugInfo.timeSinceLastHit}ms` : '-',
         threshold: `> ${debugInfo.minInterval ?? 250}ms`,
         detail: !debugInfo.peakPass ? '跳过' : (debugInfo.intervalPass ? '间隔足够' : '间隔太短')
-      },
-      {
-        id: 'result',
-        name: '最终判定',
-        status: debugInfo.detected ? 'pass' : (debugInfo.allChecksComplete ? 'fail' : 'checking'),
-        value: debugInfo.detected ? '✓ 计数' : (debugInfo.allChecksComplete ? '✗ 未通过' : '判定中'),
-        detail: debugInfo.failReason || (debugInfo.detected ? '检测成功' : '等待完整判定')
       }
     ];
 
@@ -78,15 +72,23 @@ export const DetectionDebugPanel: React.FC<DetectionDebugPanelProps> = ({ debugI
 
   const getStatusColor = (status: CheckStep['status']) => {
     switch (status) {
-      case 'pass': return { bg: 'bg-green-900/50', border: 'border-green-500', text: 'text-green-400', icon: '✓' };
-      case 'fail': return { bg: 'bg-red-900/50', border: 'border-red-500', text: 'text-red-400', icon: '✗' };
-      case 'checking': return { bg: 'bg-yellow-900/50', border: 'border-yellow-500', text: 'text-yellow-400', icon: '◐' };
-      case 'skip': return { bg: 'bg-gray-800/50', border: 'border-gray-600', text: 'text-gray-500', icon: '○' };
-      default: return { bg: 'bg-gray-800/50', border: 'border-gray-600', text: 'text-gray-400', icon: '○' };
+      case 'pass': return { bg: 'bg-green-900/50', border: 'border-green-500', text: 'text-green-400' };
+      case 'fail': return { bg: 'bg-red-900/50', border: 'border-red-500', text: 'text-red-400' };
+      case 'checking': return { bg: 'bg-yellow-900/50', border: 'border-yellow-500', text: 'text-yellow-400' };
+      case 'skip': return { bg: 'bg-gray-800/50', border: 'border-gray-600', text: 'text-gray-500' };
+      default: return { bg: 'bg-gray-800/50', border: 'border-gray-600', text: 'text-gray-400' };
     }
   };
 
-  const [expanded, setExpanded] = useState(false);
+  const getStatusDot = (status: CheckStep['status']) => {
+    switch (status) {
+      case 'pass': return 'bg-green-400';
+      case 'fail': return 'bg-red-400';
+      case 'checking': return 'bg-yellow-400 animate-pulse';
+      case 'skip': return 'bg-gray-600';
+      default: return 'bg-gray-600';
+    }
+  };
 
   return (
     <div className="bg-gradient-to-br from-gray-900 to-purple-900 rounded-xl p-4 space-y-3">
@@ -103,58 +105,97 @@ export const DetectionDebugPanel: React.FC<DetectionDebugPanelProps> = ({ debugI
       </div>
 
       <div className="space-y-2">
-        {steps.map((step, index) => {
+        {steps.map((step) => {
           const colors = getStatusColor(step.status);
           return (
             <div key={step.id} className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${step.status === 'pass' ? 'bg-green-400' : step.status === 'fail' ? 'bg-red-400' : step.status === 'checking' ? 'bg-yellow-400 animate-pulse' : 'bg-gray-600'}`} />
+              <div className={`w-2 h-2 rounded-full ${getStatusDot(step.status)}`} />
               <span className="text-xs text-gray-400 w-20">{step.name}</span>
               <span className={`text-xs font-mono ${colors.text}`}>{step.value}</span>
-              {expanded && step.threshold && (
-                <span className="text-xs text-gray-500 ml-auto">阈值: {step.threshold}</span>
-              )}
+              <span className="text-xs text-gray-600">/</span>
+              <span className="text-xs text-gray-500">{step.threshold}</span>
             </div>
           );
         })}
       </div>
 
+      <div className={`rounded-lg p-3 ${
+        debugInfo.detected 
+          ? 'bg-green-900/40 border border-green-500/50' 
+          : 'bg-gray-800/40 border border-gray-700'
+      }`}>
+        <div className="flex items-center justify-between mb-2">
+          <span className={`font-bold text-sm ${
+            debugInfo.detected ? 'text-green-400' : 'text-gray-400'
+          }`}>
+            {debugInfo.detected ? '🎯 检测成功' : '✗ 未通过'}
+          </span>
+          <span className={`text-lg font-bold ${
+            debugInfo.detected ? 'text-green-400' : 'text-gray-500'
+          }`}>
+            {debugInfo.hitCount}
+          </span>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+          <div className="flex justify-between">
+            <span className="text-gray-500">当前能量:</span>
+            <span className={`font-mono ${
+              debugInfo.energyPass ? 'text-green-400' : 'text-red-400'
+            }`}>
+              {debugInfo.currentEnergy?.toFixed(1)} / {debugInfo.energyThreshold?.toFixed(1)}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">置信度:</span>
+            <span className={`font-mono ${
+              debugInfo.confidencePass ? 'text-green-400' : 'text-red-400'
+            }`}>
+              {(debugInfo.currentConfidence * 100).toFixed(0)}% / {(debugInfo.confidenceThreshold * 100).toFixed(0)}%
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">间隔:</span>
+            <span className={`font-mono ${
+              debugInfo.intervalPass ? 'text-green-400' : 'text-red-400'
+            }`}>
+              {debugInfo.timeSinceLastHit}ms / {debugInfo.minInterval}ms
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-500">SNR:</span>
+            <span className="text-cyan-400 font-mono">{debugInfo.snr?.toFixed(1)}</span>
+          </div>
+        </div>
+
+        {debugInfo.failReason && !debugInfo.detected && (
+          <div className="mt-2 pt-2 border-t border-gray-700 text-xs text-red-400">
+            失败原因: {debugInfo.failReason}
+          </div>
+        )}
+      </div>
+
       {expanded && debugInfo && (
         <div className="bg-gray-900/50 rounded-lg p-3 space-y-2 text-xs">
-          <div className="text-gray-400 mb-2">详细参数:</div>
+          <div className="text-gray-400 mb-2 font-semibold">完整参数:</div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
             <div className="flex justify-between">
-              <span className="text-gray-500">当前能量:</span>
-              <span className="text-cyan-400 font-mono">{debugInfo.currentEnergy?.toFixed(2) ?? '-'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">能量阈值:</span>
-              <span className="text-orange-400 font-mono">{debugInfo.energyThreshold?.toFixed(2) ?? '-'}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">SNR:</span>
-              <span className="text-purple-400 font-mono">{debugInfo.snr?.toFixed(2) ?? '-'}</span>
-            </div>
-            <div className="flex justify-between">
               <span className="text-gray-500">峰值能量:</span>
-              <span className="text-yellow-400 font-mono">{debugInfo.peakEnergy?.toFixed(2) ?? '-'}</span>
+              <span className="text-yellow-400 font-mono">{debugInfo.peakEnergy?.toFixed(2)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">频率:</span>
-              <span className="text-pink-400 font-mono">{debugInfo.dominantFrequency?.toFixed(0) ?? '-'} Hz</span>
+              <span className="text-gray-500">主频率:</span>
+              <span className="text-pink-400 font-mono">{debugInfo.dominantFrequency?.toFixed(0)} Hz</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">间隔:</span>
-              <span className="text-green-400 font-mono">{debugInfo.timeSinceLastHit ?? '-'}ms</span>
+              <span className="text-gray-500">能量上升:</span>
+              <span className={debugInfo.isRising ? 'text-green-400' : 'text-gray-400'}>
+                {debugInfo.isRising ? '是' : '否'}
+              </span>
             </div>
           </div>
         </div>
       )}
-
-      <div className={`text-xs text-center py-2 rounded-lg ${debugInfo.detected ? 'bg-green-900/30 text-green-400' : 'bg-gray-800/30 text-gray-500'}`}>
-        {debugInfo.detected 
-          ? `🎯 检测成功！当前计数: ${debugInfo.hitCount}`
-          : debugInfo.failReason || '等待检测中...'}
-      </div>
     </div>
   );
 };

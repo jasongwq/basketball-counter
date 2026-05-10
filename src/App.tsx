@@ -6,7 +6,7 @@ import { AudioVisualizer } from './components/AudioVisualizer';
 import { StatsPanel } from './components/StatsPanel';
 import { LearningPanel } from './components/LearningPanel';
 import { DetectionDebugPanel } from './components/DetectionDebugPanel';
-import { BUILD_VERSION, BUILD_TIME } from './version';
+import { BUILD_VERSION, BUILD_TIME, BUILD_TIMESTAMP } from './version';
 
 function App() {
   const [isStarted, setIsStarted] = useState(false);
