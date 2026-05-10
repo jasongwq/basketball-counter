@@ -6,13 +6,21 @@ interface StatsPanelProps {
   isActive: boolean;
   energyThreshold: number;
   onThresholdChange: (value: number) => void;
+  minFrequency?: number;
+  maxFrequency?: number;
+  onMinFrequencyChange?: (value: number) => void;
+  onMaxFrequencyChange?: (value: number) => void;
 }
 
 export const StatsPanel: React.FC<StatsPanelProps> = ({
   result,
   isActive,
   energyThreshold,
-  onThresholdChange
+  onThresholdChange,
+  minFrequency = 20,
+  maxFrequency = 500,
+  onMinFrequencyChange,
+  onMaxFrequencyChange
 }) => {
   const [animatedCount, setAnimatedCount] = useState(0);
 
@@ -89,12 +97,32 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
           </div>
 
           <div className="flex justify-between text-sm">
+            <span className="text-gray-400">上次频率</span>
+            <span className="text-green-400 font-medium">
+              {result.lastHitFrequency > 0 ? `${result.lastHitFrequency.toFixed(0)} Hz` : '--'}
+            </span>
+          </div>
+
+          <div className="flex justify-between text-sm">
             <span className="text-gray-400">平均能量</span>
             <span className="text-purple-400 font-medium">
               {result.averageEnergy.toFixed(1)}
             </span>
           </div>
         </div>
+
+        {result.frequencyHistory.length > 0 && (
+          <div className="bg-gray-800/30 rounded-lg p-3">
+            <div className="text-xs text-gray-400 mb-2">频率历史 (最近10次)</div>
+            <div className="flex flex-wrap gap-1">
+              {result.frequencyHistory.slice(-10).map((freq, index) => (
+                <span key={index} className="text-xs bg-blue-900/50 text-blue-300 px-2 py-1 rounded">
+                  {freq}Hz
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2">
           <div className="flex justify-between items-center">
@@ -115,6 +143,47 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
             <span>低灵敏度</span>
           </div>
         </div>
+
+        {onMinFrequencyChange && onMaxFrequencyChange && (
+          <div className="space-y-2 pt-3 border-t border-gray-700">
+            <div className="flex justify-between items-center">
+              <label className="text-sm text-gray-400">频率范围</label>
+              <span className="text-sm text-cyan-400 font-medium">{minFrequency} - {maxFrequency} Hz</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>最小</span>
+                  <span>{minFrequency}Hz</span>
+                </div>
+                <input
+                  type="range"
+                  min="20"
+                  max="200"
+                  value={minFrequency}
+                  onChange={(e) => onMinFrequencyChange(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                  disabled={!isActive}
+                />
+              </div>
+              <div>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>最大</span>
+                  <span>{maxFrequency}Hz</span>
+                </div>
+                <input
+                  type="range"
+                  min="100"
+                  max="1000"
+                  value={maxFrequency}
+                  onChange={(e) => onMaxFrequencyChange(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
+                  disabled={!isActive}
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-gradient-to-br from-orange-900/20 to-yellow-900/20 rounded-xl p-4 border border-orange-500/20">

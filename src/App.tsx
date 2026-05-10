@@ -7,6 +7,8 @@ import { StatsPanel } from './components/StatsPanel';
 function App() {
   const [isStarted, setIsStarted] = useState(false);
   const [energyThreshold, setEnergyThreshold] = useState(80);
+  const [minFrequency, setMinFrequency] = useState(20);
+  const [maxFrequency, setMaxFrequency] = useState(500);
   const [showPermissionModal, setShowPermissionModal] = useState(true);
 
   const {
@@ -24,15 +26,22 @@ function App() {
     startDetection,
     stopDetection,
     resetStats,
-    setThreshold
+    setThreshold,
+    setFrequencyRange
   } = useHitDetection(getAudioData, isListening, {
     energyThreshold,
-    minHitInterval: 250
+    minHitInterval: 250,
+    minFrequency,
+    maxFrequency
   });
 
   useEffect(() => {
     setThreshold(energyThreshold);
   }, [energyThreshold, setThreshold]);
+
+  useEffect(() => {
+    setFrequencyRange(minFrequency, maxFrequency);
+  }, [minFrequency, maxFrequency, setFrequencyRange]);
 
   const handleStart = useCallback(async () => {
     await startListening();
@@ -62,6 +71,14 @@ function App() {
 
   const handleThresholdChange = useCallback((value: number) => {
     setEnergyThreshold(value);
+  }, []);
+
+  const handleMinFrequencyChange = useCallback((value: number) => {
+    setMinFrequency(value);
+  }, []);
+
+  const handleMaxFrequencyChange = useCallback((value: number) => {
+    setMaxFrequency(value);
   }, []);
 
   return (
@@ -139,6 +156,10 @@ function App() {
               isActive={isDetecting}
               energyThreshold={energyThreshold}
               onThresholdChange={handleThresholdChange}
+              minFrequency={minFrequency}
+              maxFrequency={maxFrequency}
+              onMinFrequencyChange={handleMinFrequencyChange}
+              onMaxFrequencyChange={handleMaxFrequencyChange}
             />
           </div>
         </div>

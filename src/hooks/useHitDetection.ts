@@ -8,12 +8,16 @@ export interface HitDetectionResult {
   lastHitTime: number | null;
   peakFrequency: number;
   averageEnergy: number;
+  lastHitFrequency: number;
+  frequencyHistory: number[];
 }
 
 export interface UseHitDetectionOptions {
   energyThreshold?: number;
   minHitInterval?: number;
   decayRate?: number;
+  minFrequency?: number;
+  maxFrequency?: number;
 }
 
 export interface UseHitDetectionReturn {
@@ -24,6 +28,7 @@ export interface UseHitDetectionReturn {
   stopDetection: () => void;
   resetStats: () => void;
   setThreshold: (value: number) => void;
+  setFrequencyRange: (min: number, max: number) => void;
   getAudioData: () => AudioAnalyzerData;
 }
 
@@ -35,7 +40,9 @@ export function useHitDetection(
   const {
     energyThreshold = 80,
     minHitInterval = 300,
-    decayRate = 0.95
+    decayRate = 0.95,
+    minFrequency = 20,
+    maxFrequency = 500
   } = options;
 
   const [result, setResult] = useState<HitDetectionResult>({
@@ -44,7 +51,9 @@ export function useHitDetection(
     duration: 0,
     lastHitTime: null,
     peakFrequency: 0,
-    averageEnergy: 0
+    averageEnergy: 0,
+    lastHitFrequency: 0,
+    frequencyHistory: []
   });
 
   const [currentEnergy, setCurrentEnergy] = useState(0);
@@ -57,9 +66,18 @@ export function useHitDetection(
   const energyHistoryRef = useRef<number[]>([]);
   const thresholdRef = useRef(energyThreshold);
   const peakFrequencyRef = useRef(0);
+  const lastHitFrequencyRef = useRef(0);
+  const frequencyHistoryRef = useRef<number[]>([]);
+  const minFrequencyRef = useRef(minFrequency);
+  const maxFrequencyRef = useRef(maxFrequency);
 
   const setThreshold = useCallback((value: number) => {
     thresholdRef.current = value;
+  }, []);
+
+  const setFrequencyRange = useCallback((min: number, max: number) => {
+    minFrequencyRef.current = min;
+    maxFrequencyRef.current = max;
   }, []);
 
   const resetStats = useCallback(() => {
@@ -69,13 +87,17 @@ export function useHitDetection(
       duration: 0,
       lastHitTime: null,
       peakFrequency: 0,
-      averageEnergy: 0
+      averageEnergy: 0,
+      lastHitFrequency: 0,
+      frequencyHistory: []
     });
     hitCountRef.current = 0;
     lastHitTimeRef.current = null;
     startTimeRef.current = null;
     energyHistoryRef.current = [];
     peakFrequencyRef.current = 0;
+    lastHitFrequencyRef.current = 0;
+    frequencyHistoryRef.current = [];
   }, []);
 
   const detectHits = useCallback(() => {
@@ -87,10 +109,10 @@ export function useHitDetection(
     setCurrentEnergy(energy);
 
     const currentTime = Date.now();
-    const frequency = calculateDominantFrequency(frequencyData);
+    const dominantFrequency = calculateDominantFrequency(frequencyData, minFrequencyRef.current, maxFrequencyRef.current);
     
-    if (frequency > peakFrequencyRef.current) {
-      peakFrequencyRef.current = frequency;
+    if (dominantFrequency > peakFrequencyRef.current) {
+      peakFrequencyRef.current = dominantFrequency;
     }
 
     energyHistoryRef.current.push(energy);
@@ -114,6 +136,11 @@ export function useHitDetection(
     if (isAboveThreshold && canDetectHit) {
       hitCountRef.current += 1;
       lastHitTimeRef.current = currentTime;
+      lastHitFrequencyRef.current = dominantFrequency;
+      frequencyHistoryRef.current.push(dominantFrequency);
+      if (frequencyHistoryRef.current.length > 50) {
+        frequencyHistoryRef.current.shift();
+      }
     }
 
     const hitsPerMinute = minutes > 0 ? hitCountRef.current / minutes : 0;
@@ -124,26 +151,32 @@ export function useHitDetection(
       duration,
       lastHitTime: lastHitTimeRef.current,
       peakFrequency: peakFrequencyRef.current,
-      averageEnergy: Math.round(averageEnergy * 10) / 10
+      averageEnergy: Math.round(averageEnergy * 10) / 10,
+      lastHitFrequency: lastHitFrequencyRef.current,
+      frequencyHistory: [...frequencyHistoryRef.current]
     });
 
     animationFrameRef.current = requestAnimationFrame(detectHits);
   }, [getAudioData, isListening, minHitInterval]);
 
-  function calculateDominantFrequency(frequencyData: Uint8Array): number {
-    let maxIndex = 0;
-    let maxValue = 0;
+  function calculateDominantFrequency(frequencyData: Uint8Array, minFreq: number, maxFreq: number): number {
+    const nyquist = 22050;
+    const binSize = nyquist / frequencyData.length;
+    const minIndex = Math.floor(minFreq / binSize);
+    const maxIndex = Math.min(Math.ceil(maxFreq / binSize), frequencyData.length - 1);
     
-    for (let i = 0; i < frequencyData.length; i++) {
+    let maxValue = 0;
+    let dominantIndex = 0;
+    
+    for (let i = minIndex; i <= maxIndex; i++) {
       if (frequencyData[i] > maxValue) {
         maxValue = frequencyData[i];
-        maxIndex = i;
+        dominantIndex = i;
       }
     }
     
-    const nyquist = 22050;
-    const frequency = (maxIndex * nyquist) / frequencyData.length;
-    return frequency;
+    const frequency = (dominantIndex * nyquist) / frequencyData.length;
+    return Math.round(frequency);
   }
 
   const startDetection = useCallback(() => {
@@ -185,6 +218,7 @@ export function useHitDetection(
     stopDetection,
     resetStats,
     setThreshold,
+    setFrequencyRange,
     getAudioData
   };
 }
