@@ -515,8 +515,6 @@ export function useHitDetection(
   }, []);
 
   const calibrate = useCallback(async () => {
-    if (!isListening) return;
-
     setIsCalibrating(true);
     setCalibrationProgress(0);
     noiseSamplesRef.current = [];
@@ -551,11 +549,9 @@ export function useHitDetection(
     };
     
     calibrationFrameRef.current = requestAnimationFrame(collectSample);
-  }, [isListening, getAudioData]);
+  }, [getAudioData]);
 
   const detectHits = useCallback(() => {
-    if (!isListening) return;
-
     const audioData = getAudioData();
     const { frequencyData } = audioData;
     const binSize = NYQUIST / frequencyData.length;
@@ -715,11 +711,11 @@ export function useHitDetection(
     });
 
     animationFrameRef.current = requestAnimationFrame(detectHits);
-  }, [getAudioData, isListening]);
+  }, [getAudioData]);
 
   const startDetection = useCallback(async () => {
-    if (!isListening) return;
-    
+    // 不再依赖 isListening 状态（React setState 是异步的）
+    // 直接使用 ref 获取音频数据
     learnedProfileRef.current = learnedProfile;
     minHitIntervalRef.current = minHitInterval;
     confidenceThresholdRef.current = confidenceThreshold;
@@ -731,7 +727,7 @@ export function useHitDetection(
     await calibrate();
     
     animationFrameRef.current = requestAnimationFrame(detectHits);
-  }, [isListening, resetStats, detectHits, calibrate, learnedProfile, minHitInterval, confidenceThreshold]);
+  }, [resetStats, detectHits, calibrate, learnedProfile, minHitInterval, confidenceThreshold]);
 
   const stopDetection = useCallback(() => {
     setIsDetecting(false);
