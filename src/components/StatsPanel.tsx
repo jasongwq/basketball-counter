@@ -10,6 +10,7 @@ interface StatsPanelProps {
   maxFrequency?: number;
   onMinFrequencyChange?: (value: number) => void;
   onMaxFrequencyChange?: (value: number) => void;
+  currentConfidence?: number;
 }
 
 export const StatsPanel: React.FC<StatsPanelProps> = ({
@@ -17,10 +18,11 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
   isActive,
   energyThreshold,
   onThresholdChange,
-  minFrequency = 20,
-  maxFrequency = 500,
+  minFrequency = 50,
+  maxFrequency = 300,
   onMinFrequencyChange,
-  onMaxFrequencyChange
+  onMaxFrequencyChange,
+  currentConfidence = 0
 }) => {
   const [animatedCount, setAnimatedCount] = useState(0);
 
@@ -51,6 +53,12 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
       return { label: '进行中', color: 'text-gray-400', icon: '🎯' };
     }
     return { label: '待开始', color: 'text-gray-500', icon: '⏳' };
+  };
+
+  const getConfidenceColor = (conf: number): string => {
+    if (conf >= 0.7) return 'text-green-400';
+    if (conf >= 0.4) return 'text-yellow-400';
+    return 'text-gray-400';
   };
 
   const performance = getPerformanceLevel();
@@ -104,6 +112,13 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
           </div>
 
           <div className="flex justify-between text-sm">
+            <span className="text-gray-400">当前置信度</span>
+            <span className={`font-medium ${getConfidenceColor(currentConfidence)}`}>
+              {(currentConfidence * 100).toFixed(0)}%
+            </span>
+          </div>
+
+          <div className="flex justify-between text-sm">
             <span className="text-gray-400">平均能量</span>
             <span className="text-purple-400 font-medium">
               {result.averageEnergy.toFixed(1)}
@@ -135,13 +150,13 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
 
         <div className="space-y-2">
           <div className="flex justify-between items-center">
-            <label className="text-sm text-gray-400">检测灵敏度</label>
+            <label className="text-sm text-gray-400">检测阈值</label>
             <span className="text-sm text-orange-400 font-medium">{energyThreshold}</span>
           </div>
           <input
             type="range"
-            min="30"
-            max="180"
+            min="20"
+            max="200"
             value={energyThreshold}
             onChange={(e) => onThresholdChange(Number(e.target.value))}
             className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider"
@@ -191,17 +206,20 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
                 />
               </div>
             </div>
+            <p className="text-xs text-gray-500 text-center mt-1">
+              篮球拍球约 50-300 Hz
+            </p>
           </div>
         )}
       </div>
 
-      <div className="bg-gradient-to-br from-orange-900/20 to-yellow-900/20 rounded-xl p-4 border border-orange-500/20">
+      <div className="bg-gradient-to-br from-green-900/20 to-blue-900/20 rounded-xl p-4 border border-green-500/20">
         <div className="flex items-start space-x-3">
-          <div className="text-2xl">💡</div>
+          <div className="text-2xl">🎯</div>
           <div>
-            <h4 className="text-orange-400 font-semibold text-sm mb-1">使用提示</h4>
+            <h4 className="text-green-400 font-semibold text-sm mb-1">自适应检测</h4>
             <p className="text-gray-400 text-xs leading-relaxed">
-              调整灵敏度阈值可以过滤环境噪音。建议在安静环境下使用此应用进行篮球拍球训练。
+              系统会先自动校准环境噪音，生成自适应阈值。多特征融合检测更准确。
             </p>
           </div>
         </div>

@@ -7,8 +7,8 @@ import { StatsPanel } from './components/StatsPanel';
 function App() {
   const [isStarted, setIsStarted] = useState(false);
   const [energyThreshold, setEnergyThreshold] = useState(80);
-  const [minFrequency, setMinFrequency] = useState(20);
-  const [maxFrequency, setMaxFrequency] = useState(500);
+  const [minFrequency, setMinFrequency] = useState(50);
+  const [maxFrequency, setMaxFrequency] = useState(300);
   const [showPermissionModal, setShowPermissionModal] = useState(true);
 
   const {
@@ -23,16 +23,23 @@ function App() {
   const {
     result,
     isDetecting,
+    isCalibrating,
+    currentConfidence,
+    calibrationProgress,
     startDetection,
     stopDetection,
     resetStats,
     setThreshold,
-    setFrequencyRange
+    setFrequencyRange,
+    startCalibration
   } = useHitDetection(getAudioData, isListening, {
     energyThreshold,
     minHitInterval: 250,
     minFrequency,
-    maxFrequency
+    maxFrequency,
+    useAdaptiveThreshold: true,
+    useMultiFeature: true,
+    calibrationDuration: 2000
   });
 
   useEffect(() => {
@@ -47,9 +54,7 @@ function App() {
     await startListening();
     setShowPermissionModal(false);
     setIsStarted(true);
-    setTimeout(() => {
-      startDetection();
-    }, 500);
+    startDetection();
   }, [startListening, startDetection]);
 
   const handleStop = useCallback(() => {
@@ -62,6 +67,10 @@ function App() {
   const handleReset = useCallback(() => {
     resetStats();
   }, [resetStats]);
+
+  const handleRecalibrate = useCallback(() => {
+    startCalibration();
+  }, [startCalibration]);
 
   useEffect(() => {
     if (error) {
@@ -97,39 +106,70 @@ function App() {
           <div className="lg:col-span-2 space-y-6">
             <AudioVisualizer
               audioData={getAudioData()}
-              isActive={isDetecting}
+              isActive={isDetecting || isCalibrating}
               dribbleCount={result.hitCount}
             />
 
             <div className="bg-gradient-to-br from-gray-900 to-blue-900 rounded-xl p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-white font-semibold text-lg">控制面板</h3>
-                <div className={`flex items-center space-x-2 ${
-                  isDetecting ? 'text-green-400' : 'text-gray-500'
-                }`}>
-                  <div className={`w-3 h-3 rounded-full ${
-                    isDetecting ? 'bg-green-400 animate-pulse' : 'bg-gray-500'
-                  }`} />
-                  <span className="text-sm">
-                    {isDetecting ? '检测中' : '已停止'}
-                  </span>
+                <div className="flex items-center space-x-4">
+                  {isCalibrating && (
+                    <div className="flex items-center space-x-2 text-yellow-400">
+                      <div className="w-3 h-3 rounded-full bg-yellow-400 animate-pulse" />
+                      <span className="text-sm">校准中 {Math.round(calibrationProgress * 100)}%</span>
+                    </div>
+                  )}
+                  <div className={`flex items-center space-x-2 ${
+                    isDetecting ? 'text-green-400' : 'text-gray-500'
+                  }`}>
+                    <div className={`w-3 h-3 rounded-full ${
+                      isDetecting ? 'bg-green-400 animate-pulse' : 'bg-gray-500'
+                    }`} />
+                    <span className="text-sm">
+                      {isDetecting ? '检测中' : '已停止'}
+                    </span>
+                  </div>
                 </div>
               </div>
 
+              {isCalibrating && (
+                <div className="mb-4">
+                  <div className="w-full bg-gray-700 rounded-full h-2">
+                    <div 
+                      className="bg-yellow-400 h-2 rounded-full transition-all duration-100"
+                      style={{ width: `${calibrationProgress * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-yellow-400 text-xs mt-2 text-center">
+                    请保持安静，正在检测环境噪音...
+                  </p>
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-3">
-                {!isDetecting ? (
+                {!isDetecting && !isCalibrating ? (
                   <button
                     onClick={handleStart}
                     className="flex-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-orange-600 hover:to-orange-700 transition-all transform hover:scale-105 shadow-lg"
                   >
                     ▶ 开始检测
                   </button>
-                ) : (
+                ) : isDetecting ? (
                   <button
                     onClick={handleStop}
                     className="flex-1 bg-gradient-to-r from-red-500 to-red-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-red-600 hover:to-red-700 transition-all transform hover:scale-105 shadow-lg"
                   >
                     ⏹ 停止检测
+                  </button>
+                ) : null}
+
+                {isDetecting && (
+                  <button
+                    onClick={handleRecalibrate}
+                    className="bg-gradient-to-r from-yellow-600 to-yellow-700 text-white px-4 py-3 rounded-lg font-semibold hover:from-yellow-700 hover:to-yellow-800 transition-all shadow-lg"
+                  >
+                    🎯 重新校准
                   </button>
                 )}
 
@@ -141,6 +181,19 @@ function App() {
                   🔄 重置
                 </button>
               </div>
+
+              {result.noiseLevel > 0 && (
+                <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">环境噪音</span>
+                    <span className="text-gray-300">{result.noiseLevel}</span>
+                  </div>
+                  <div className="flex justify-between text-sm mt-1">
+                    <span className="text-gray-400">自适应阈值</span>
+                    <span className="text-green-400">{result.adaptiveThreshold}</span>
+                  </div>
+                </div>
+              )}
 
               {error && (
                 <div className="mt-4 p-3 bg-red-900/30 border border-red-500/30 rounded-lg">
@@ -154,19 +207,20 @@ function App() {
             <StatsPanel
               result={result}
               isActive={isDetecting}
-              energyThreshold={energyThreshold}
+              energyThreshold={result.adaptiveThreshold || energyThreshold}
               onThresholdChange={handleThresholdChange}
               minFrequency={minFrequency}
               maxFrequency={maxFrequency}
               onMinFrequencyChange={handleMinFrequencyChange}
               onMaxFrequencyChange={handleMaxFrequencyChange}
+              currentConfidence={currentConfidence}
             />
           </div>
         </div>
 
         <footer className="mt-12 text-center">
           <p className="text-gray-500 text-xs">
-            使用 Web Audio API 和 Canvas 实现实时音频分析
+            使用 Web Audio API 和 Canvas 实现实时音频分析 | 多特征融合 + 自适应阈值
           </p>
         </footer>
       </div>
