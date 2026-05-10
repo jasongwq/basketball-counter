@@ -123,13 +123,18 @@ function App() {
   }, [hasPermission, startListening, startDetection]);
 
   const handleGrantPermission = useCallback(async () => {
-    // 用户点击授权按钮，请求麦克风权限
-    await startListening();
-    setShowPermissionModal(false);
-    setIsStarted(true);
-    confidenceHistoryRef.current = [];
-    setConfidenceHistory([]);
-    startDetection();
+    // 用户点击授权按钮，请求麦克风权限并直接开始检测
+    try {
+      await startListening();
+      setShowPermissionModal(false);
+      setIsStarted(true);
+      confidenceHistoryRef.current = [];
+      setConfidenceHistory([]);
+      startDetection();
+      console.log('[App] Permission granted and detection started');
+    } catch (e) {
+      console.error('[App] Failed to start after permission grant:', e);
+    }
   }, [startListening, startDetection]);
 
   const handleStop = useCallback(() => {
@@ -369,7 +374,7 @@ function App() {
 
                   <button
                     onClick={handleReset}
-                    disabled={!isStarted}
+                    disabled={result.hitCount === 0}
                     className="bg-gradient-to-r from-gray-600 to-gray-700 text-white px-6 py-3 rounded-lg font-semibold hover:from-gray-700 hover:to-gray-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     🔄 重置
@@ -405,7 +410,7 @@ function App() {
               onUpdateProfile={updateProfile}
               onExportProfile={handleExportProfile}
               onImportProfile={handleImportProfile}
-              isActive={isDetecting}
+              isActive={isListening}
             />
           </div>
         </div>
