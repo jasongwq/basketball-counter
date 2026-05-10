@@ -119,7 +119,7 @@ export function useAudioAnalyzer(): UseAudioAnalyzerReturn {
       sourceRef.current = source;
 
       const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
+      analyser.fftSize = 2048;
       analyser.smoothingTimeConstant = 0.3;
       analyser.minDecibels = -90;
       analyser.maxDecibels = -10;

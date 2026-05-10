@@ -108,16 +108,20 @@ export function useHitDetection(
     const audioData = getAudioData();
     const { energy, frequencyData, timeDomainData } = audioData;
 
-    setCurrentEnergy(energy);
+    const rangeEnergy = calculateEnergyInRange(frequencyData, minFrequencyRef.current, maxFrequencyRef.current);
+    setCurrentEnergy(rangeEnergy);
 
     const currentTime = Date.now();
     const dominantFrequency = calculateDominantFrequency(frequencyData, minFrequencyRef.current, maxFrequencyRef.current);
+    
+    const isInFrequencyRange = dominantFrequency >= minFrequencyRef.current && 
+                                dominantFrequency <= maxFrequencyRef.current;
     
     if (dominantFrequency > peakFrequencyRef.current) {
       peakFrequencyRef.current = dominantFrequency;
     }
 
-    energyHistoryRef.current.push(energy);
+    energyHistoryRef.current.push(rangeEnergy);
     if (energyHistoryRef.current.length > 100) {
       energyHistoryRef.current.shift();
     }
@@ -131,11 +135,11 @@ export function useHitDetection(
     const duration = currentTime - startTimeRef.current;
     const minutes = duration / 60000;
 
-    const isAboveThreshold = energy > thresholdRef.current;
+    const isAboveThreshold = rangeEnergy > thresholdRef.current;
     const canDetectHit = lastHitTimeRef.current === null || 
                           (currentTime - lastHitTimeRef.current) > minHitIntervalRef.current;
 
-    if (isAboveThreshold && canDetectHit) {
+    if (isInFrequencyRange && isAboveThreshold && canDetectHit) {
       hitCountRef.current += 1;
       lastHitTimeRef.current = currentTime;
       lastHitFrequencyRef.current = dominantFrequency;
@@ -182,6 +186,22 @@ export function useHitDetection(
     
     const frequency = (dominantIndex * nyquist) / frequencyData.length;
     return Math.round(frequency);
+  }
+
+  function calculateEnergyInRange(frequencyData: Uint8Array, minFreq: number, maxFreq: number): number {
+    const nyquist = 22050;
+    const binSize = nyquist / frequencyData.length;
+    const minIndex = Math.floor(minFreq / binSize);
+    const maxIndex = Math.min(Math.ceil(maxFreq / binSize), frequencyData.length - 1);
+    
+    let sum = 0;
+    let count = 0;
+    for (let i = minIndex; i <= maxIndex; i++) {
+      sum += frequencyData[i] * frequencyData[i];
+      count++;
+    }
+    
+    return count > 0 ? Math.sqrt(sum / count) : 0;
   }
 
   const startDetection = useCallback(() => {
