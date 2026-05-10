@@ -6,12 +6,15 @@ import { AudioVisualizer } from './components/AudioVisualizer';
 import { StatsPanel } from './components/StatsPanel';
 import { LearningPanel } from './components/LearningPanel';
 import { DetectionDebugPanel } from './components/DetectionDebugPanel';
+import { ConsolePanel, useConsoleLogs } from './components/ConsolePanel';
 import { BUILD_VERSION, BUILD_TIME } from './version';
 
 function App() {
   const [isStarted, setIsStarted] = useState(false);
   const [showPermissionModal, setShowPermissionModal] = useState(true);
+  const [showConsole, setShowConsole] = useState(true);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
+  const { logs, clearLogs } = useConsoleLogs();
   const [confidenceHistory, setConfidenceHistory] = useState<number[]>([]);
   const [profileLoadStatus, setProfileLoadStatus] = useState<'loading' | 'loaded' | 'none'>('loading');
   
@@ -169,6 +172,13 @@ function App() {
           <div className="text-xs text-gray-500">
             v{BUILD_VERSION} · {BUILD_TIME}
           </div>
+          <button
+            onClick={() => setShowConsole(!showConsole)}
+            className={`text-xs px-2 py-1 rounded ${showConsole ? 'bg-blue-900/50 text-blue-400' : 'bg-gray-800 text-gray-500 hover:text-gray-300'}`}
+            title="切换控制台"
+          >
+            📋 控制台
+          </button>
         </div>
       </header>
 
@@ -395,6 +405,10 @@ function App() {
             </p>
           </div>
         </div>
+      )}
+
+      {showConsole && (
+        <ConsolePanel logs={logs} onClear={clearLogs} onClose={() => setShowConsole(false)} />
       )}
     </div>
   );
