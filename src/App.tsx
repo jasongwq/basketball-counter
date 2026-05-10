@@ -11,8 +11,8 @@ import { BUILD_VERSION, BUILD_TIME } from './version';
 
 function App() {
   const [isStarted, setIsStarted] = useState(false);
-  const [showPermissionModal, setShowPermissionModal] = useState(true);
-  const [showConsole, setShowConsole] = useState(true);
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
+  const [showConsole, setShowConsole] = useState(false);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const { logs, clearLogs } = useConsoleLogs();
   const [confidenceHistory, setConfidenceHistory] = useState<number[]>([]);
@@ -74,6 +74,25 @@ function App() {
     });
   }, [loadProfile]);
 
+  // 检查麦克风权限状态
+  useEffect(() => {
+    const checkPermission = async () => {
+      try {
+        const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        console.log('[App] Microphone permission status:', result.state);
+        if (result.state === 'granted') {
+          // 已有权限，不需要弹框
+        } else if (result.state === 'prompt') {
+          // 需要请求权限
+        }
+        // denied 状态用户需要手动修改浏览器设置
+      } catch (e) {
+        console.log('[App] Permission API not supported');
+      }
+    };
+    checkPermission();
+  }, []);
+
   useEffect(() => {
     if (error) {
       alert(`错误: ${error}`);
@@ -89,6 +108,22 @@ function App() {
   }, [currentConfidence]);
 
   const handleStart = useCallback(async () => {
+    // 检查是否已有权限
+    if (!hasPermission) {
+      setShowPermissionModal(true);
+      return;
+    }
+    // 已有权限，直接开始
+    await startListening();
+    setShowPermissionModal(false);
+    setIsStarted(true);
+    confidenceHistoryRef.current = [];
+    setConfidenceHistory([]);
+    startDetection();
+  }, [hasPermission, startListening, startDetection]);
+
+  const handleGrantPermission = useCallback(async () => {
+    // 用户点击授权按钮，请求麦克风权限
     await startListening();
     setShowPermissionModal(false);
     setIsStarted(true);
@@ -99,9 +134,8 @@ function App() {
 
   const handleStop = useCallback(() => {
     stopDetection();
-    stopListening();
+    stopListening(); // 释放麦克风
     setIsStarted(false);
-    setShowPermissionModal(true);
   }, [stopDetection, stopListening]);
 
   const handleReset = useCallback(() => {
@@ -397,7 +431,7 @@ function App() {
             </div>
 
             <button
-              onClick={handleStart}
+              onClick={handleGrantPermission}
               className="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-white px-6 py-4 rounded-xl font-semibold hover:from-orange-600 hover:to-orange-700 transition-all transform hover:scale-105 shadow-lg"
             >
               授权并开始

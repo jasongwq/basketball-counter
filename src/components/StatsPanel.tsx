@@ -17,7 +17,8 @@ export const StatsPanel: React.FC<StatsPanelProps> = ({
   const [animatedCount, setAnimatedCount] = useState(0);
 
   useEffect(() => {
-    if (result.hitCount > animatedCount) {
+    // 当 hitCount 变化时更新动画计数（包括重置为 0）
+    if (result.hitCount !== animatedCount) {
       const timeout = setTimeout(() => {
         setAnimatedCount(result.hitCount);
       }, 100);
