@@ -66,6 +66,9 @@ export interface UseHitDetectionReturn {
   startCalibration: () => Promise<void>;
   getAudioData: () => AudioAnalyzerData;
   debugInfo: DetectionDebugInfo;
+  nearMissSnapshot: DetectionDebugInfo | null;
+  hasNearMissSnapshot: boolean;
+  clearNearMissSnapshot: () => void;
 }
 
 const NYQUIST = 22050;
@@ -494,6 +497,9 @@ export function useHitDetection(
   const confidenceThresholdRef = useRef(confidenceThreshold);
   const minHitIntervalRef = useRef(minHitInterval);
   const noiseSamplesRef = useRef<number[]>([]);
+  // 最接近通过快照相关状态
+  const [nearMissSnapshot, setNearMissSnapshot] = useState<DetectionDebugInfo | null>(null);
+  const nearMissSnapshotRef = useRef<DetectionDebugInfo | null>(null);
 
   const resetStats = useCallback(() => {
     setResult({
@@ -512,6 +518,9 @@ export function useHitDetection(
     frequencyHistoryRef.current = [];
     hitIdCounterRef.current = 0;
     envelopeHistoryRef.current = [];
+    // 清除最接近通过快照
+    nearMissSnapshotRef.current = null;
+    setNearMissSnapshot(null);
   }, []);
 
   const calibrate = useCallback(async () => {
@@ -710,6 +719,47 @@ export function useHitDetection(
       dominantFrequency: Math.round(dominantFreq)
     });
 
+    // 最接近通过快照逻辑：当检测未通过时，如果置信度比之前快照更接近阈值，则更新
+    if (!isValidEvent && confidence > 0 && confidenceThresholdRef.current > 0) {
+      const currentGap = confidenceThresholdRef.current - confidence;
+      // 只在置信度有一定水平（至少达到阈值的30%）且未通过时记录
+      if (currentGap > 0 && confidence >= confidenceThresholdRef.current * 0.3) {
+        const prevGap = nearMissSnapshotRef.current
+          ? confidenceThresholdRef.current - nearMissSnapshotRef.current.currentConfidence
+          : Infinity;
+        if (currentGap < prevGap) {
+          const snapshot: DetectionDebugInfo = {
+            currentEnergy: Math.round(energy * 100) / 100,
+            energyThreshold: Math.round(threshold * 100) / 100,
+            energyChecked: true,
+            energyPass,
+            isRising: isRisingRef.current,
+            risingChecked: energy > threshold,
+            risingPass,
+            peakEnergy: Math.round(peakEnergyRef.current * 100) / 100,
+            peakChecked: isRisingRef.current,
+            peakPass,
+            currentConfidence: Math.round(confidence * 1000) / 1000,
+            confidenceThreshold: confidenceThresholdRef.current,
+            confidenceChecked: peakPass,
+            confidencePass,
+            minInterval,
+            timeSinceLastHit: Math.round(timeSinceLastHit),
+            intervalChecked: peakPass,
+            intervalPass,
+            allChecksComplete: energy > threshold && learnedProfileRef.current !== null,
+            detected: false,
+            failReason,
+            hitCount: hitCountRef.current,
+            snr: Math.round(snr * 100) / 100,
+            dominantFrequency: Math.round(dominantFreq)
+          };
+          nearMissSnapshotRef.current = snapshot;
+          setNearMissSnapshot(snapshot);
+        }
+      }
+    }
+
     animationFrameRef.current = requestAnimationFrame(detectHits);
   }, [getAudioData]);
 
@@ -739,6 +789,12 @@ export function useHitDetection(
       cancelAnimationFrame(calibrationFrameRef.current);
       calibrationFrameRef.current = null;
     }
+  }, []);
+
+  // 清除最接近通过快照
+  const clearNearMissSnapshot = useCallback(() => {
+    nearMissSnapshotRef.current = null;
+    setNearMissSnapshot(null);
   }, []);
 
   useEffect(() => {
@@ -782,7 +838,10 @@ export function useHitDetection(
     resetStats,
     startCalibration: calibrate,
     getAudioData,
-    debugInfo
+    debugInfo,
+    nearMissSnapshot,
+    hasNearMissSnapshot: nearMissSnapshot !== null,
+    clearNearMissSnapshot
   };
 }
 

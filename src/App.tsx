@@ -54,7 +54,10 @@ function App() {
     startDetection,
     stopDetection,
     resetStats,
-    debugInfo
+    debugInfo,
+    nearMissSnapshot,
+    hasNearMissSnapshot,
+    clearNearMissSnapshot
   } = useHitDetection(getAudioData, isListening, {
     learnedProfile,
     minHitInterval: 250,
@@ -217,7 +220,13 @@ function App() {
               dribbleCount={result.hitCount}
             />
 
-            <DetectionDebugPanel debugInfo={debugInfo} isActive={isDetecting} />
+            <DetectionDebugPanel
+              debugInfo={debugInfo}
+              isActive={isDetecting}
+              nearMissSnapshot={nearMissSnapshot}
+              hasNearMissSnapshot={hasNearMissSnapshot}
+              onClearNearMissSnapshot={clearNearMissSnapshot}
+            />
 
             <div className="bg-gradient-to-br from-gray-900 to-blue-900 rounded-xl p-6">
               <div className="flex items-center justify-between mb-4">

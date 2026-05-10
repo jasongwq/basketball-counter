@@ -4,6 +4,9 @@ import { DetectionDebugInfo } from '../hooks/useHitDetection';
 interface DetectionDebugPanelProps {
   debugInfo: DetectionDebugInfo;
   isActive: boolean;
+  nearMissSnapshot?: DetectionDebugInfo | null;
+  hasNearMissSnapshot?: boolean;
+  onClearNearMissSnapshot?: () => void;
 }
 
 interface CheckStep {
@@ -15,7 +18,7 @@ interface CheckStep {
   detail?: string;
 }
 
-export const DetectionDebugPanel: React.FC<DetectionDebugPanelProps> = ({ debugInfo, isActive }) => {
+export const DetectionDebugPanel: React.FC<DetectionDebugPanelProps> = ({ debugInfo, isActive, nearMissSnapshot, hasNearMissSnapshot, onClearNearMissSnapshot }) => {
   const [steps, setSteps] = useState<CheckStep[]>([]);
   const [expanded, setExpanded] = useState(false);
 
@@ -194,6 +197,78 @@ export const DetectionDebugPanel: React.FC<DetectionDebugPanelProps> = ({ debugI
               </span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 最接近通过快照区域 */}
+      {hasNearMissSnapshot && nearMissSnapshot && (
+        <div className="bg-gradient-to-br from-orange-900/30 to-yellow-900/30 rounded-lg p-3 space-y-2 border border-orange-500/30">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-orange-400 font-semibold flex items-center gap-1">
+              🎯 接近通过快照
+            </span>
+            <button
+              onClick={onClearNearMissSnapshot}
+              className="text-xs text-gray-400 hover:text-white bg-gray-800/50 px-2 py-0.5 rounded hover:bg-gray-700/50 transition-colors"
+            >
+              清除快照
+            </button>
+          </div>
+
+          <div className="text-xs text-orange-300/70 mb-1">
+            差距: {((nearMissSnapshot.confidenceThreshold - nearMissSnapshot.currentConfidence) * 100).toFixed(1)}% 到达阈值
+          </div>
+
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+            <div className="flex justify-between">
+              <span className="text-gray-500">能量:</span>
+              <span className={`font-mono ${nearMissSnapshot.energyPass ? 'text-green-400' : 'text-red-400'}`}>
+                {nearMissSnapshot.currentEnergy?.toFixed(1)} / {nearMissSnapshot.energyThreshold?.toFixed(1)}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">置信度:</span>
+              <span className="font-mono text-orange-400">
+                {(nearMissSnapshot.currentConfidence * 100).toFixed(1)}% / {(nearMissSnapshot.confidenceThreshold * 100).toFixed(0)}%
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">峰值能量:</span>
+              <span className="font-mono text-yellow-400">{nearMissSnapshot.peakEnergy?.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">主频率:</span>
+              <span className="font-mono text-pink-400">{nearMissSnapshot.dominantFrequency?.toFixed(0)} Hz</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">SNR:</span>
+              <span className="font-mono text-cyan-400">{nearMissSnapshot.snr?.toFixed(1)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">间隔:</span>
+              <span className={`font-mono ${nearMissSnapshot.intervalPass ? 'text-green-400' : 'text-red-400'}`}>
+                {nearMissSnapshot.timeSinceLastHit}ms / {nearMissSnapshot.minInterval}ms
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">上升沿:</span>
+              <span className={nearMissSnapshot.risingPass ? 'text-green-400' : 'text-red-400'}>
+                {nearMissSnapshot.risingPass ? '通过' : '未通过'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">峰值:</span>
+              <span className={nearMissSnapshot.peakPass ? 'text-green-400' : 'text-red-400'}>
+                {nearMissSnapshot.peakPass ? '通过' : '未通过'}
+              </span>
+            </div>
+          </div>
+
+          {nearMissSnapshot.failReason && (
+            <div className="pt-1 border-t border-orange-500/20 text-xs text-orange-300/70">
+              失败原因: {nearMissSnapshot.failReason}
+            </div>
+          )}
         </div>
       )}
     </div>

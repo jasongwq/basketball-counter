@@ -236,7 +236,7 @@ export const LearningPanel: React.FC<LearningPanelProps> = ({
               onClick={handleOpenEdit}
               className="bg-gradient-to-r from-yellow-600 to-yellow-700 text-white px-3 py-2 rounded-lg font-medium hover:from-yellow-700 hover:to-yellow-800 transition-all text-sm"
             >
-              查看
+              编辑
             </button>
             <button
               onClick={onClearProfile}
@@ -307,18 +307,34 @@ export const LearningPanel: React.FC<LearningPanelProps> = ({
 
               <div className="bg-gray-800/50 rounded-lg p-3">
                 <div className="text-orange-400 font-medium mb-2">噪声基准</div>
-                <div className="text-xs text-gray-300">
-                  动态噪声基底: <span className="text-orange-300">{editingProfile.noiseFloor.toFixed(1)}</span>
+                <div className="text-xs text-gray-300 flex items-center gap-2">
+                  <span>动态噪声基底:</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editingProfile.noiseFloor}
+                    onChange={(e) => setEditingProfile({
+                      ...editingProfile,
+                      noiseFloor: parseFloat(e.target.value) || 0
+                    })}
+                    className="bg-gray-700 text-orange-300 text-xs px-2 py-1 rounded w-20 border border-gray-600 focus:border-orange-400 focus:outline-none"
+                  />
                 </div>
               </div>
             </div>
 
             <div className="flex gap-2 mt-6">
               <button
+                onClick={handleSaveEdit}
+                className="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg font-medium hover:from-green-700 hover:to-green-800 transition-all"
+              >
+                保存
+              </button>
+              <button
                 onClick={() => setShowProfileModal(false)}
                 className="flex-1 bg-gray-700 text-white px-4 py-2 rounded-lg font-medium hover:bg-gray-600 transition-all"
               >
-                关闭
+                取消
               </button>
             </div>
           </div>
