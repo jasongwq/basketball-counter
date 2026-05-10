@@ -53,7 +53,9 @@ jobs:
         run: |
           mkdir -p src
           echo 'export const BUILD_VERSION = "${{ steps.version.outputs.version }}";' > src/version.ts
-          echo "export const BUILD_TIME = new Date('${{ steps.version.outputs.update_time }}').toLocaleString('zh-CN', { hour12: false });" >> src/version.ts
+          echo "const BUILD_TIME_RAW = '${{ steps.version.outputs.update_time }}';" >> src/version.ts
+          echo "const BUILD_TIME_DATE = new Date(BUILD_TIME_RAW.replace('Z', '+00:00'));" >> src/version.ts
+          echo 'export const BUILD_TIME = BUILD_TIME_DATE.toLocaleString("zh-CN", { hour12: false, timeZoneName: "short" });' >> src/version.ts
           cat src/version.ts
       - name: Build
         run: npm run build
