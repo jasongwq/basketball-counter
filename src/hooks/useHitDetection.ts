@@ -655,6 +655,18 @@ export function useHitDetection(
     }
   }, [isListening, stopDetection]);
 
+  useEffect(() => {
+    learnedProfileRef.current = learnedProfile;
+  }, [learnedProfile]);
+
+  useEffect(() => {
+    confidenceThresholdRef.current = confidenceThreshold;
+  }, [confidenceThreshold]);
+
+  useEffect(() => {
+    minHitIntervalRef.current = minHitInterval;
+  }, [minHitInterval]);
+
   return {
     result,
     isDetecting,
