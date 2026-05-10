@@ -23,12 +23,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set build timestamp
+      - name: Generate version and timestamp
+        id: version
         run: |
+          # 获取当前日期作为版本号 (YY.MM.DD.BUILD_NUM)
+          DATE_PART=$(TZ='Asia/Shanghai' date '+%y.%m.%d')
+          # 使用 GitHub run number 作为当天构建序号
+          BUILD_NUM=${{ github.run_number }}
+          VERSION="${DATE_PART}.${BUILD_NUM}"
           TIMESTAMP=$(TZ='Asia/Shanghai' date '+%Y/%m/%d %H:%M:%S')
-          echo "export const BUILD_VERSION = '1.0.1';" > src/version.ts
+          
+          echo "export const BUILD_VERSION = '${VERSION}';" > src/version.ts
           echo "export const BUILD_TIME = '${TIMESTAMP}';" >> src/version.ts
+          
+          echo "Generated version: ${VERSION}"
           echo "Generated timestamp: ${TIMESTAMP}"
+          cat src/version.ts
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
